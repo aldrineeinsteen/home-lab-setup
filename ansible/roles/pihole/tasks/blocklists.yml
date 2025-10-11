@@ -1,0 +1,58 @@
+---
+# Blocklist management tasks using JSON configuration
+- name: Copy blocklists configuration
+  copy:
+    src: blocklists.json
+    dest: /tmp/blocklists.json
+    mode: '0644'
+  tags:
+    - pihole
+    - blocklists
+
+- name: Read blocklists configuration
+  slurp:
+    src: /tmp/blocklists.json
+  register: blocklists_config
+  tags:
+    - pihole
+    - blocklists
+
+- name: Parse blocklists JSON
+  set_fact:
+    blocklists_data: "{{ blocklists_config.content | b64decode | from_json }}"
+  tags:
+    - pihole
+    - blocklists
+
+- name: Get enabled blocklists
+  set_fact:
+    enabled_blocklists: "{{ blocklists_data.blocklists | selectattr('enabled', 'equalto', true) | map(attribute='url') | list }}"
+  tags:
+    - pihole
+    - blocklists
+
+- name: Add custom blocklists to Pi-hole
+  shell: "pihole -b {{ item }}"
+  become: true
+  loop: "{{ enabled_blocklists }}"
+  when: enabled_blocklists is defined and enabled_blocklists | length > 0
+  notify: update gravity
+  tags:
+    - pihole
+    - blocklists
+
+- name: Add regex blocklist patterns
+  shell: "pihole --regex {{ item.pattern }}"
+  become: true
+  loop: "{{ blocklists_data.regex_blocklist | selectattr('enabled', 'equalto', true) | list }}"
+  when: blocklists_data.regex_blocklist is defined
+  tags:
+    - pihole
+    - regex
+
+- name: Update gravity database
+  shell: "pihole -g"
+  become: true
+  tags:
+    - pihole
+    - gravity

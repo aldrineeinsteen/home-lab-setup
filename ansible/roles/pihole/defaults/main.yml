@@ -1,0 +1,47 @@
+---
+# Default variables for Pi-hole role
+pihole_dns_1: "1.1.1.1"
+pihole_dns_2: "1.0.0.1"
+pihole_timezone: "UTC"
+pihole_webport: 80
+pihole_dnsport: 53
+pihole_interface: "eth0"
+pihole_ipv4_address: "{{ ansible_default_ipv4.address }}"
+pihole_ipv6_address: ""
+
+# Network settings
+pihole_dhcp_active: false
+pihole_dhcp_start: ""
+pihole_dhcp_end: ""
+pihole_dhcp_router: ""
+pihole_domain_name: "homelab.local"
+
+# Web interface settings
+pihole_temperature_unit: "C"
+pihole_webuiboxedlayout: "boxed"
+pihole_api_exclude_domains: ""
+pihole_api_exclude_clients: ""
+pihole_api_query_log_show: "all"
+
+# Security settings
+pihole_blocking_enabled: true
+pihole_rev_server: false
+
+# Package lists by OS family
+pihole_required_packages_debian:
+  - curl
+  - ca-certificates
+  - git
+  - dialog
+  - apt-utils
+  - cron
+
+pihole_required_packages_redhat:
+  - curl
+  - ca-certificates
+  - git
+  - dialog
+  - cronie
+
+# Firewall configuration
+configure_firewall: true

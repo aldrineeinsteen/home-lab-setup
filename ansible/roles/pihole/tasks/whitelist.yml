@@ -1,0 +1,36 @@
+---
+# Whitelist management tasks using JSON configuration
+- name: Get enabled whitelist domains from JSON
+  set_fact:
+    enabled_whitelist: "{{ blocklists_data.whitelist | selectattr('enabled', 'equalto', true) | map(attribute='domain') | list }}"
+  when: blocklists_data is defined
+  tags:
+    - pihole
+    - whitelist
+
+- name: Add domains to Pi-hole whitelist from JSON
+  shell: "pihole -w {{ item }}"
+  become: true
+  loop: "{{ enabled_whitelist }}"
+  when: enabled_whitelist is defined and enabled_whitelist | length > 0
+  tags:
+    - pihole
+    - whitelist
+
+# Fallback to environment variable if JSON not available
+- name: Parse whitelist domains from environment
+  set_fact:
+    whitelist_domains: "{{ pihole_whitelist_domains.split(',') | map('trim') | list }}"
+  when: pihole_whitelist_domains is defined and pihole_whitelist_domains != "" and blocklists_data is not defined
+  tags:
+    - pihole
+    - whitelist
+
+- name: Add domains to Pi-hole whitelist from environment
+  shell: "pihole -w {{ item }}"
+  become: true
+  loop: "{{ whitelist_domains }}"
+  when: whitelist_domains is defined and item != "" and blocklists_data is not defined
+  tags:
+    - pihole
+    - whitelist

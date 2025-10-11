@@ -1,0 +1,27 @@
+---
+# Global variables for all hosts
+ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+
+# Environment variables (these will be overridden by actual .env values)
+pihole_host: "{{ lookup('env', 'PIHOLE_HOST') | default('192.168.1.100') }}"
+pihole_user: "{{ lookup('env', 'PIHOLE_USER') | default('pi') }}"
+pihole_password: "{{ lookup('env', 'PIHOLE_PASSWORD') | default('') }}"
+pihole_dns1: "{{ lookup('env', 'PIHOLE_DNS1') | default('1.1.1.1') }}"
+pihole_dns2: "{{ lookup('env', 'PIHOLE_DNS2') | default('1.0.0.1') }}"
+pihole_timezone: "{{ lookup('env', 'PIHOLE_TIMEZONE') | default('UTC') }}"
+pihole_webport: "{{ lookup('env', 'PIHOLE_WEBPORT') | default('80') }}"
+pihole_dnsport: "{{ lookup('env', 'PIHOLE_DNSPORT') | default('53') }}"
+
+# Network configuration
+network_domain: "{{ lookup('env', 'NETWORK_DOMAIN') | default('homelab.local') }}"
+network_dhcp_range_start: "{{ lookup('env', 'NETWORK_DHCP_RANGE_START') | default('') }}"
+network_dhcp_range_end: "{{ lookup('env', 'NETWORK_DHCP_RANGE_END') | default('') }}"
+network_gateway: "{{ lookup('env', 'NETWORK_GATEWAY') | default('192.168.1.1') }}"
+
+# SSH configuration
+ssh_key_path: "{{ lookup('env', 'SSH_KEY_PATH') | default('~/.ssh/id_rsa') }}"
+ssh_port: "{{ lookup('env', 'SSH_PORT') | default('22') }}"
+
+# Custom lists
+pihole_blocklists: "{{ lookup('env', 'PIHOLE_BLOCKLISTS') | default('') }}"
+pihole_whitelist: "{{ lookup('env', 'PIHOLE_WHITELIST') | default('') }}"

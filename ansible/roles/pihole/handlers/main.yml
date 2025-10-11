@@ -1,0 +1,17 @@
+---
+# Handlers for Pi-hole role
+- name: restart pihole
+  systemd:
+    name: pihole-FTL
+    state: restarted
+  become: true
+
+- name: restart lighttpd
+  systemd:
+    name: lighttpd
+    state: restarted
+  become: true
+
+- name: update gravity
+  shell: "pihole -g"
+  become: true

@@ -1,0 +1,113 @@
+---
+# Main tasks for Pi-hole role
+- name: Include OS-specific variables
+  include_vars: "{{ ansible_os_family }}.yml"
+  failed_when: false
+
+- name: Update package cache
+  package:
+    update_cache: yes
+  become: yes
+
+- name: Install required packages
+  package:
+    name: "{{ pihole_required_packages }}"
+    state: present
+  become: yes
+
+- name: Create pihole user
+  user:
+    name: pihole
+    system: yes
+    shell: /bin/false
+    home: /var/lib/pihole
+    create_home: yes
+  become: yes
+
+- name: Create Pi-hole directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: pihole
+    group: pihole
+    mode: '0755'
+  become: yes
+  loop:
+    - /etc/pihole
+    - /var/lib/pihole
+    - /var/log/pihole
+
+- name: Download Pi-hole installer
+  get_url:
+    url: "https://install.pi-hole.net"
+    dest: "/tmp/pihole-install.sh"
+    mode: '0755'
+  become: yes
+
+- name: Create Pi-hole setup configuration
+  template:
+    src: setupVars.conf.j2
+    dest: /etc/pihole/setupVars.conf
+    owner: pihole
+    group: pihole
+    mode: '0644'
+  become: yes
+  notify: restart pihole
+
+- name: Run Pi-hole installer (unattended)
+  shell: |
+    export PIHOLE_SKIP_OS_CHECK=true
+    bash /tmp/pihole-install.sh --unattended
+  become: yes
+  args:
+    creates: /usr/local/bin/pihole
+  notify: restart pihole
+
+- name: Set Pi-hole admin password
+  shell: "pihole -a -p {{ pihole_admin_password }}"
+  become: yes
+  when: pihole_admin_password is defined and pihole_admin_password != ""
+  no_log: true
+
+- name: Add custom blocklists
+  include_tasks: blocklists.yml
+  when: pihole_custom_blocklists is defined and pihole_custom_blocklists != ""
+
+- name: Add whitelist domains
+  include_tasks: whitelist.yml
+  when: pihole_whitelist_domains is defined and pihole_whitelist_domains != ""
+
+- name: Enable and start Pi-hole services
+  systemd:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  become: yes
+  loop:
+    - pihole-FTL
+    - lighttpd
+
+- name: Configure firewall for Pi-hole
+  include_tasks: firewall.yml
+  when: configure_firewall | default(true)
+
+- name: Verify Pi-hole installation
+  uri:
+    url: "http://{{ ansible_default_ipv4.address }}:{{ pihole_webport }}/admin/"
+    method: GET
+    status_code: 200
+  register: pihole_web_check
+  retries: 3
+  delay: 5
+
+- name: Display Pi-hole access information
+  debug:
+    msg: |
+      Pi-hole has been successfully installed!
+      Web interface: http://{{ ansible_default_ipv4.address }}:{{ pihole_webport }}/admin/
+      DNS server: {{ ansible_default_ipv4.address }}:{{ pihole_dnsport }}
+      
+      Next steps:
+      1. Configure your router to use {{ ansible_default_ipv4.address }} as DNS server
+      2. Or configure individual devices to use this DNS server
+      3. Access the web interface to customize settings

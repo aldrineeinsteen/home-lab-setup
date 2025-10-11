@@ -1,0 +1,33 @@
+# Environment files
+.env.sh
+.env
+
+# Ansible vault files
+*.vault
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
+
+# Ansible retry files
+*.retry
+
+# SSH keys
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# Backup files
+*.bak
+*.backupansible-venv/

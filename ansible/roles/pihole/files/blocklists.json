@@ -1,0 +1,68 @@
+{
+  "blocklists": [
+    {
+      "name": "StevenBlack Unified Hosts",
+      "url": "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
+      "description": "Unified hosts file with base extensions",
+      "enabled": true
+    },
+    {
+      "name": "SomeoneWhoCares",
+      "url": "https://someonewhocares.org/hosts/zero/hosts",
+      "description": "Dan Pollock's hosts file",
+      "enabled": true
+    },
+    {
+      "name": "Malware Domain List",
+      "url": "https://www.malwaredomainlist.com/hostslist/hosts.txt",
+      "description": "Malware domains list",
+      "enabled": true
+    },
+    {
+      "name": "AdGuard DNS Filter",
+      "url": "https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/BaseFilter/sections/adservers.txt",
+      "description": "AdGuard base filter",
+      "enabled": false
+    },
+    {
+      "name": "EasyList",
+      "url": "https://easylist.to/easylist/easylist.txt",
+      "description": "EasyList ad blocking filter",
+      "enabled": false
+    }
+  ],
+  "whitelist": [
+    {
+      "domain": "github.com",
+      "description": "GitHub main domain",
+      "enabled": true
+    },
+    {
+      "domain": "githubusercontent.com",
+      "description": "GitHub user content",
+      "enabled": true
+    },
+    {
+      "domain": "googletagmanager.com",
+      "description": "Google Tag Manager",
+      "enabled": false
+    },
+    {
+      "domain": "google-analytics.com",
+      "description": "Google Analytics",
+      "enabled": false
+    }
+  ],
+  "regex_blocklist": [
+    {
+      "pattern": "^(.+[-_.])??adse?rv(er?|ice)?s?[0-9]*[-.]",
+      "description": "Block ad servers",
+      "enabled": true
+    },
+    {
+      "pattern": "^(.+[-_.])??m?ads?[.0-9]*[-_.]",
+      "description": "Block mobile ads",
+      "enabled": true
+    }
+  ]
+}

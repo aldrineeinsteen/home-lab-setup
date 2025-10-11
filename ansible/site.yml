@@ -1,0 +1,70 @@
+---
+- name: Deploy Pi-hole Home Lab Setup
+  hosts: pihole_servers
+  become: true
+  gather_facts: true
+  
+  pre_tasks:
+    - name: Load environment variables
+      include_vars:
+        file: "{{ playbook_dir }}/../.env.yml"
+      when: env_file_exists | default(false)
+      failed_when: false
+      
+    - name: Verify connectivity to target hosts
+      ping:
+      
+    - name: Gather system information
+      setup:
+        gather_subset:
+          - network
+          - hardware
+          
+    - name: Display target host information
+      debug:
+        msg: |
+          Deploying Pi-hole to: {{ inventory_hostname }}
+          IP Address: {{ ansible_default_ipv4.address }}
+          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Architecture: {{ ansible_architecture }}
+          Memory: {{ ansible_memtotal_mb }}MB
+          
+  roles:
+    - role: pihole
+      tags: ['pihole', 'dns']
+      
+  post_tasks:
+    - name: Verify Pi-hole services are running
+      systemd:
+        name: "{{ item }}"
+        state: started
+      loop:
+        - pihole-FTL
+        - lighttpd
+      register: service_status
+      
+    - name: Display deployment summary
+      debug:
+        msg: |
+          ============================================
+          Pi-hole Deployment Complete!
+          ============================================
+          
+          Pi-hole Web Interface:
+            URL: http://{{ ansible_default_ipv4.address }}:{{ pihole_webport }}/admin/
+            
+          DNS Server Configuration:
+            Primary DNS: {{ ansible_default_ipv4.address }}:{{ pihole_dnsport }}
+            
+          Next Steps:
+            1. Configure your router's DNS settings to use {{ ansible_default_ipv4.address }}
+            2. OR configure individual devices to use this DNS server
+            3. Access the web interface to customize blocklists and settings
+            4. Monitor the query log to verify DNS filtering is working
+            
+          Services Status:
+          {% for service in service_status.results %}
+            - {{ service.name }}: {{ 'Running' if service.state == 'started' else 'Not Running' }}
+          {% endfor %}
+          
+          ============================================

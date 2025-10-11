@@ -1,0 +1,49 @@
+---
+# Firewall configuration tasks
+- name: Install UFW (Ubuntu/Debian)
+  package:
+    name: ufw
+    state: present
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Configure UFW rules for Pi-hole
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: any
+  become: true
+  loop:
+    - "{{ pihole_dnsport }}"
+    - "{{ pihole_webport }}"
+    - "22"  # SSH
+  when: ansible_os_family == "Debian"
+
+- name: Enable UFW
+  ufw:
+    state: enabled
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Configure firewalld (CentOS/RHEL)
+  firewalld:
+    port: "{{ item }}/tcp"
+    permanent: true
+    state: enabled
+    immediate: true
+  become: true
+  loop:
+    - "{{ pihole_webport }}"
+  when: ansible_os_family == "RedHat"
+
+- name: Configure firewalld for DNS (CentOS/RHEL)
+  firewalld:
+    port: "{{ pihole_dnsport }}/{{ item }}"
+    permanent: true
+    state: enabled
+    immediate: true
+  become: true
+  loop:
+    - tcp
+    - udp
+  when: ansible_os_family == "RedHat"
