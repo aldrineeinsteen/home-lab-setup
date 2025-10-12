@@ -1,0 +1,184 @@
+---
+# Pi-hole Network and DNS Configuration Tasks
+# Handles network domain configuration and custom DNS entries
+
+- name: Create dnsmasq configuration directory
+  file:
+    path: /etc/dnsmasq.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Check Pi-hole version for configuration method
+  command: pihole version --short
+  register: pihole_version_check
+  changed_when: false
+  failed_when: false
+
+- name: Determine if Pi-hole v6 or newer
+  set_fact:
+    is_pihole_v6: "{{ pihole_version_check.stdout | regex_replace('^v?([0-9]+).*', '\\1') | int >= 6 }}"
+  when: 
+    - pihole_version_check.stdout is defined
+    - pihole_version_check.stdout != ""
+    - pihole_version_check.stdout | regex_search('^v?[0-9]+')
+  failed_when: false
+
+- name: Set Pi-hole v6 fallback (assume v5 if version detection fails)
+  set_fact:
+    is_pihole_v6: false
+  when: is_pihole_v6 is not defined
+
+- name: Enable custom dnsmasq configuration loading for Pi-hole v6+
+  command: pihole-FTL --config misc.etc_dnsmasq_d true
+  when: 
+    - pihole_network_postfix is defined
+    - is_pihole_v6 | default(false) | bool
+  notify: restart pihole-FTL
+
+- name: Configure local domain for dnsmasq (Pi-hole v5 and older OR v6+ with custom config enabled)
+  copy:
+    content: |
+      # Local domain configuration for Pi-hole
+      # Managed by Ansible - Do not edit manually
+      # Generated on {{ ansible_date_time.iso8601 }}
+      
+      # Set the local domain
+      domain={{ pihole_network_postfix | default('local') }}
+      
+      # Expand simple names in /etc/hosts
+      expand-hosts
+      
+      # Set the domain for dnsmasq
+      local=/{{ pihole_network_postfix | default('local') }}/
+      
+      # Return addresses for local domain queries from /etc/hosts or DHCP
+      domain-needed
+      bogus-priv
+    dest: /etc/dnsmasq.d/02-local-domain.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart pihole-FTL
+  when: pihole_network_postfix is defined
+
+- name: Configure local domain in Pi-hole v6+ config file (alternative method)
+  block:
+    - name: Check if pihole.toml exists
+      stat:
+        path: /etc/pihole/pihole.toml
+      register: pihole_toml_check
+
+    - name: Configure misc.etc_dnsmasq_d in pihole.toml
+      lineinfile:
+        path: /etc/pihole/pihole.toml
+        regexp: '^misc\.etc_dnsmasq_d\s*='
+        line: 'misc.etc_dnsmasq_d = true'
+        create: true
+      when: pihole_toml_check.stat.exists
+      notify: restart pihole-FTL
+
+  when: 
+    - pihole_network_postfix is defined
+    - is_pihole_v6 | default(false) | bool
+
+- name: Configure custom DNS entries in Pi-hole custom.list
+  copy:
+    content: |
+      # Pi-hole Custom DNS Configuration
+      # Managed by Ansible - Do not edit manually
+      # Generated on {{ ansible_date_time.iso8601 }}
+      {% for dns_entry in pihole_custom_dns | default([]) %}
+      {{ dns_entry.ip }} {{ dns_entry.domain }}
+      {% endfor %}
+    dest: /etc/pihole/custom.list
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart pihole-FTL
+  when: pihole_custom_dns is defined and pihole_custom_dns | length > 0
+
+- name: Add custom DNS entries to system hosts file (backup)
+  lineinfile:
+    path: /etc/hosts
+    line: "{{ item.ip }} {{ item.domain }}"
+    regexp: "^.*{{ item.domain }}$"
+    backup: true
+  loop: "{{ pihole_custom_dns | default([]) }}"
+  when: pihole_custom_dns is defined and pihole_custom_dns | length > 0
+
+- name: Configure hostname resolution with local domain
+  lineinfile:
+    path: /etc/hosts
+    line: "{{ ansible_default_ipv4.address }} {{ ansible_hostname }}.{{ pihole_network_postfix | default('local') }} {{ ansible_hostname }}"
+    regexp: "^{{ ansible_default_ipv4.address }}.*{{ ansible_hostname }}"
+    backup: true
+  when: pihole_network_postfix is defined
+
+- name: Test custom DNS resolution
+  command: dig @localhost {{ item.domain }} +short
+  register: dns_test_results
+  loop: "{{ pihole_custom_dns | default([]) }}"
+  changed_when: false
+  failed_when: false
+  when: pihole_custom_dns is defined and pihole_custom_dns | length > 0
+
+- name: Display custom DNS test results
+  debug:
+    msg: |
+      Custom DNS Test Results:
+      {% for result in dns_test_results.results | default([]) %}
+      {{ result.item.domain }}: {{ result.stdout if result.stdout else 'FAILED' }}
+      {% endfor %}
+  when: pihole_custom_dns is defined and dns_test_results is defined
+
+- name: Verify local domain configuration
+  command: dig @localhost {{ ansible_hostname }}.{{ pihole_network_postfix | default('local') }} +short
+  register: local_domain_test
+  changed_when: false
+  failed_when: false
+  when: pihole_network_postfix is defined
+
+- name: Display local domain test result
+  debug:
+    msg: |
+      Local Domain Test: {{ ansible_hostname }}.{{ pihole_network_postfix | default('local') }}
+      Result: {{ local_domain_test.stdout if local_domain_test.stdout else 'FAILED - Check configuration' }}
+  when: pihole_network_postfix is defined and local_domain_test is defined
+
+- name: Verify Pi-hole v6 custom configuration status
+  block:
+    - name: Check custom dnsmasq loading status
+      command: pihole-FTL --config misc.etc_dnsmasq_d
+      register: dnsmasq_custom_status
+      changed_when: false
+      failed_when: false
+
+    - name: Display Pi-hole v6 configuration status
+      debug:
+        msg: |
+          Pi-hole v6 Configuration Status:
+          - Version: {{ pihole_version_check.stdout | default('Unknown') }}
+          - Custom dnsmasq loading: {{ dnsmasq_custom_status.stdout | default('Not configured') }}
+          - Configuration method: {{ 'Pi-hole v6+ (dnsmasq.d files)' if is_pihole_v6 | default(false) else 'Pi-hole v5 (setupVars.conf)' }}
+
+    - name: List active dnsmasq configuration files
+      find:
+        paths: /etc/dnsmasq.d
+        patterns: "*.conf"
+      register: dnsmasq_files
+      when: pihole_network_postfix is defined
+
+    - name: Display active dnsmasq configuration files
+      debug:
+        msg: |
+          Active dnsmasq configuration files:
+          {% for file in dnsmasq_files.files | default([]) %}
+          - {{ file.path }}
+          {% endfor %}
+      when: 
+        - pihole_network_postfix is defined
+        - dnsmasq_files is defined
+
+  when: is_pihole_v6 is defined

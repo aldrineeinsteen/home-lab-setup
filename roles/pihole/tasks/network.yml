@@ -1,0 +1,327 @@
+---
+# Pi-hole Network and DNS Configuration Tasks - Modern FTL API Approach
+# Handles network domain configuration and custom DNS entries using modern methods
+# Compatible with Pi-hole v6+
+
+- name: Create dnsmasq configuration directory
+  file:
+    path: /etc/dnsmasq.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Check Pi-hole version for configuration method
+  command: pihole version --short
+  register: pihole_version_check
+  changed_when: false
+  failed_when: false
+
+- name: Determine if Pi-hole v6 or newer
+  set_fact:
+    is_pihole_v6: "{{ pihole_version_check.stdout | regex_replace('^v?([0-9]+).*', '\\1') | int >= 6 }}"
+  when: 
+    - pihole_version_check.stdout is defined
+    - pihole_version_check.stdout != ""
+    - pihole_version_check.stdout | regex_search('^v?[0-9]+')
+  failed_when: false
+
+- name: Set Pi-hole v6 fallback (assume v5 if version detection fails)
+  set_fact:
+    is_pihole_v6: false
+  when: is_pihole_v6 is not defined
+
+- name: Configure custom dnsmasq configuration loading using FTL config
+  block:
+    - name: Enable custom dnsmasq configuration loading for Pi-hole v6+
+      command: pihole-FTL --config misc.etc_dnsmasq_d true
+      register: dnsmasq_config_result
+      changed_when: dnsmasq_config_result.stdout != 'true'
+      notify: restart pihole-FTL
+
+    - name: Display dnsmasq configuration status
+      debug:
+        msg: |
+          DNSmasq Custom Configuration:
+          - Status: {{ 'Enabled' if dnsmasq_config_result.stdout == 'true' else 'Disabled' }}
+          - Method: Pi-hole FTL configuration
+
+  when: 
+    - pihole_network_postfix is defined
+    - is_pihole_v6 | default(false) | bool
+
+- name: Configure local domain for dnsmasq (Pi-hole v5 and older OR v6+ with custom config enabled)
+  copy:
+    content: |
+      # Local domain configuration for Pi-hole
+      # Managed by Ansible - Do not edit manually
+      # Generated on {{ ansible_date_time.iso8601 }}
+      
+      # Set the local domain
+      domain={{ pihole_network_postfix | default('local') }}
+      
+      # Expand simple names in /etc/hosts
+      expand-hosts
+      
+      # Set the domain for dnsmasq
+      local=/{{ pihole_network_postfix | default('local') }}/
+      
+      # Return addresses for local domain queries from /etc/hosts or DHCP
+      domain-needed
+      bogus-priv
+    dest: /etc/dnsmasq.d/02-local-domain.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart pihole-FTL
+  when: pihole_network_postfix is defined
+
+- name: Configure conditional forwarding using FTL config (Pi-hole v6+)
+  block:
+    - name: Enable conditional forwarding
+      command: pihole-FTL --config dns.conditionalForwarding true
+      register: conditional_forwarding_result
+      changed_when: conditional_forwarding_result.stdout != 'true'
+
+    - name: Set conditional forwarding domain
+      command: pihole-FTL --config dns.conditionalForwarding.domain "{{ pihole_network_postfix }}"
+      register: conditional_domain_result
+      changed_when: conditional_domain_result.stdout != pihole_network_postfix
+
+    - name: Set conditional forwarding router
+      command: pihole-FTL --config dns.conditionalForwarding.router "{{ pihole_dhcp_router | default(ansible_default_ipv4.gateway) }}"
+      register: conditional_router_result
+      changed_when: conditional_router_result.stdout != (pihole_dhcp_router | default(ansible_default_ipv4.gateway))
+
+    - name: Display conditional forwarding configuration
+      debug:
+        msg: |
+          Conditional Forwarding Configuration (FTL):
+          - Enabled: {{ conditional_forwarding_result.stdout }}
+          - Domain: {{ conditional_domain_result.stdout }}
+          - Router: {{ conditional_router_result.stdout }}
+
+  when: 
+    - pihole_network_postfix is defined
+    - is_pihole_v6 | default(false) | bool
+  notify: restart pihole-FTL
+
+- name: Configure custom DNS entries using Pi-hole custom.list
+  copy:
+    content: |
+      # Pi-hole Custom DNS Configuration
+      # Managed by Ansible - Do not edit manually
+      # Generated on {{ ansible_date_time.iso8601 }}
+      {% for dns_entry in pihole_custom_dns | default([]) %}
+      {{ dns_entry.ip }} {{ dns_entry.domain }}
+      {% endfor %}
+    dest: /etc/pihole/custom.list
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart pihole-FTL
+  when: pihole_custom_dns is defined and pihole_custom_dns | length > 0
+
+- name: Add custom DNS entries via Pi-hole API (alternative method)
+  block:
+    - name: Add custom DNS entries via API
+      uri:
+        url: "http://localhost/api/customdns"
+        method: POST
+        body_format: json
+        body:
+          domain: "{{ item.domain }}"
+          ip: "{{ item.ip }}"
+        return_content: yes
+      loop: "{{ pihole_custom_dns | default([]) }}"
+      register: custom_dns_api_result
+      failed_when: false
+      become: false
+
+    - name: Display custom DNS API results
+      debug:
+        msg: |
+          Custom DNS API Results:
+          {% for result in custom_dns_api_result.results | default([]) %}
+          - {{ result.item.domain }}: {{ 'Success' if result.status == 200 else 'Failed' }}
+          {% endfor %}
+
+  when: 
+    - pihole_custom_dns is defined 
+    - pihole_custom_dns | length > 0
+    - false  # Disabled by default - use custom.list instead
+
+- name: Add custom DNS entries to system hosts file (backup method)
+  lineinfile:
+    path: /etc/hosts
+    line: "{{ item.ip }} {{ item.domain }}"
+    regexp: "^.*{{ item.domain }}$"
+    backup: true
+  loop: "{{ pihole_custom_dns | default([]) }}"
+  when: pihole_custom_dns is defined and pihole_custom_dns | length > 0
+
+- name: Configure hostname resolution with local domain
+  lineinfile:
+    path: /etc/hosts
+    line: "{{ ansible_default_ipv4.address }} {{ ansible_hostname }}.{{ pihole_network_postfix | default('local') }} {{ ansible_hostname }}"
+    regexp: "^{{ ansible_default_ipv4.address }}.*{{ ansible_hostname }}"
+    backup: true
+  when: pihole_network_postfix is defined
+
+- name: Reload Pi-hole configuration for DNS changes
+  command: pihole restartdns reload-lists
+  changed_when: false
+
+- name: Test custom DNS resolution
+  block:
+    - name: Test each custom DNS entry
+      command: dig @localhost {{ item.domain }} +short
+      register: dns_test_results
+      loop: "{{ pihole_custom_dns | default([]) }}"
+      changed_when: false
+      failed_when: false
+
+    - name: Display custom DNS test results
+      debug:
+        msg: |
+          Custom DNS Test Results:
+          {% for result in dns_test_results.results | default([]) %}
+          {{ result.item.domain }}: {{ result.stdout if result.stdout else 'FAILED' }} (Expected: {{ result.item.ip }})
+          {% endfor %}
+
+  when: pihole_custom_dns is defined and pihole_custom_dns | length > 0
+
+- name: Test local domain configuration
+  block:
+    - name: Verify local domain configuration
+      command: dig @localhost {{ ansible_hostname }}.{{ pihole_network_postfix | default('local') }} +short
+      register: local_domain_test
+      changed_when: false
+      failed_when: false
+
+    - name: Display local domain test result
+      debug:
+        msg: |
+          Local Domain Test: {{ ansible_hostname }}.{{ pihole_network_postfix | default('local') }}
+          Result: {{ local_domain_test.stdout if local_domain_test.stdout else 'FAILED - Check configuration' }}
+          Expected: {{ ansible_default_ipv4.address }}
+
+  when: pihole_network_postfix is defined
+
+- name: Verify Pi-hole network configuration status
+  block:
+    - name: Get current DNS configuration via FTL
+      shell: |
+        echo "Pi-hole Network Configuration Status:"
+        echo "DNS Upstream Servers: $(pihole-FTL --config dns.upstreams 2>/dev/null || echo 'N/A')"
+        echo "DNS Interface: $(pihole-FTL --config dns.interface 2>/dev/null || echo 'N/A')"
+        if [ "{{ is_pihole_v6 | default(false) }}" = "True" ]; then
+          echo "Conditional Forwarding: $(pihole-FTL --config dns.conditionalForwarding 2>/dev/null || echo 'N/A')"
+          echo "Conditional Domain: $(pihole-FTL --config dns.conditionalForwarding.domain 2>/dev/null || echo 'N/A')"
+          echo "Conditional Router: $(pihole-FTL --config dns.conditionalForwarding.router 2>/dev/null || echo 'N/A')"
+          echo "Custom dnsmasq loading: $(pihole-FTL --config misc.etc_dnsmasq_d 2>/dev/null || echo 'N/A')"
+        fi
+      register: network_config_status
+      changed_when: false
+
+    - name: Display network configuration status
+      debug:
+        msg: |
+          {{ network_config_status.stdout }}
+
+    - name: List active dnsmasq configuration files
+      find:
+        paths: /etc/dnsmasq.d
+        patterns: "*.conf"
+      register: dnsmasq_files
+      when: pihole_network_postfix is defined
+
+    - name: Display active dnsmasq configuration files
+      debug:
+        msg: |
+          Active dnsmasq configuration files:
+          {% for file in dnsmasq_files.files | default([]) %}
+          - {{ file.path }} ({{ file.size }} bytes, modified {{ file.mtime | default('unknown') }})
+          {% endfor %}
+      when: 
+        - pihole_network_postfix is defined
+        - dnsmasq_files is defined
+
+- name: Verify network connectivity and DNS resolution
+  block:
+    - name: Test external DNS resolution
+      command: dig @localhost google.com +short
+      register: external_dns_test
+      changed_when: false
+      failed_when: false
+
+    - name: Test Pi-hole blocking functionality
+      command: dig @localhost doubleclick.net +short
+      register: blocking_test
+      changed_when: false
+      failed_when: false
+
+    - name: Display network functionality tests
+      debug:
+        msg: |
+          Network Functionality Tests:
+          - External DNS (google.com): {{ 'PASSED' if external_dns_test.stdout else 'FAILED' }}
+          - Ad Blocking (doubleclick.net): {{ 'PASSED (blocked)' if '0.0.0.0' in blocking_test.stdout or 'NXDOMAIN' in blocking_test.stderr else 'NEEDS_REVIEW' }}
+
+- name: Create network configuration summary script
+  copy:
+    content: |
+      #!/bin/bash
+      # Pi-hole Network Configuration Summary
+      # Generated by Ansible
+      
+      echo "=== Pi-hole Network Configuration ==="
+      echo "Date: $(date)"
+      echo
+      
+      echo "=== Pi-hole Version ==="
+      pihole version --short
+      echo
+      
+      echo "=== DNS Configuration ==="
+      echo "Upstream DNS: $(pihole-FTL --config dns.upstreams 2>/dev/null || echo 'N/A')"
+      echo "Interface: $(pihole-FTL --config dns.interface 2>/dev/null || echo 'N/A')"
+      echo "Query Logging: $(pihole-FTL --config dns.queryLogging 2>/dev/null || echo 'N/A')"
+      echo
+      
+      echo "=== Network Configuration ==="
+      {% if is_pihole_v6 | default(false) %}
+      echo "Conditional Forwarding: $(pihole-FTL --config dns.conditionalForwarding 2>/dev/null || echo 'N/A')"
+      echo "Local Domain: $(pihole-FTL --config dns.conditionalForwarding.domain 2>/dev/null || echo 'N/A')"
+      echo "Router IP: $(pihole-FTL --config dns.conditionalForwarding.router 2>/dev/null || echo 'N/A')"
+      echo "Custom dnsmasq: $(pihole-FTL --config misc.etc_dnsmasq_d 2>/dev/null || echo 'N/A')"
+      {% endif %}
+      echo
+      
+      echo "=== Custom DNS Entries ==="
+      if [ -f /etc/pihole/custom.list ]; then
+        echo "Custom DNS entries from /etc/pihole/custom.list:"
+        cat /etc/pihole/custom.list | grep -v '^#' | head -10
+      else
+        echo "No custom DNS entries found"
+      fi
+      echo
+      
+      echo "=== dnsmasq Configuration Files ==="
+      if [ -d /etc/dnsmasq.d ]; then
+        ls -la /etc/dnsmasq.d/*.conf 2>/dev/null || echo "No custom dnsmasq configuration files"
+      fi
+      echo
+      
+      echo "=== DNS Resolution Tests ==="
+      echo "External DNS (google.com): $(dig @localhost google.com +short | head -1)"
+      echo "Blocking test (doubleclick.net): $(dig @localhost doubleclick.net +short | head -1)"
+      {% if pihole_custom_dns is defined and pihole_custom_dns | length > 0 %}
+      {% for dns_entry in pihole_custom_dns %}
+      echo "Custom DNS ({{ dns_entry.domain }}): $(dig @localhost {{ dns_entry.domain }} +short | head -1)"
+      {% endfor %}
+      {% endif %}
+    dest: /usr/local/bin/pihole-network-config-summary
+    owner: root
+    group: root
+    mode: '0755'

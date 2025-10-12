@@ -1,0 +1,79 @@
+---
+# Pi-hole Installation Tasks
+# Uses the official Pi-hole installation script with unattended setup
+
+- name: Check if Pi-hole is already installed
+  stat:
+    path: /usr/local/bin/pihole
+  register: pihole_binary
+
+- name: Display installation status
+  debug:
+    msg: "Pi-hole is {{ 'already installed' if pihole_binary.stat.exists else 'not installed' }}"
+
+- name: Install required system packages
+  package:
+    name:
+      - curl
+      - wget
+      - ca-certificates
+      - sudo
+      - systemd
+      - resolvconf
+    state: present
+  when: not pihole_binary.stat.exists
+
+- name: Create Pi-hole configuration directory
+  file:
+    path: /etc/pihole
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: not pihole_binary.stat.exists
+
+- name: Create setupVars.conf for unattended installation
+  template:
+    src: setupVars.conf.j2
+    dest: /etc/pihole/setupVars.conf
+    owner: root
+    group: root
+    mode: '0644'
+  when: not pihole_binary.stat.exists
+  notify: restart pihole-FTL
+
+- name: Download Pi-hole installation script
+  get_url:
+    url: https://install.pi-hole.net
+    dest: /tmp/install-pihole.sh
+    mode: '0755'
+    timeout: 30
+  when: not pihole_binary.stat.exists
+
+- name: Run Pi-hole installation script (unattended)
+  command: bash /tmp/install-pihole.sh --unattended
+  when: not pihole_binary.stat.exists
+  register: pihole_install_result
+  changed_when: pihole_install_result.rc == 0
+  notify: restart pihole-FTL
+
+- name: Remove installation script
+  file:
+    path: /tmp/install-pihole.sh
+    state: absent
+  when: not pihole_binary.stat.exists
+
+- name: Verify Pi-hole installation
+  stat:
+    path: /usr/local/bin/pihole
+  register: pihole_verify
+  failed_when: not pihole_verify.stat.exists
+
+- name: Get Pi-hole version
+  command: pihole version --short
+  register: pihole_version_output
+  changed_when: false
+
+- name: Display Pi-hole version
+  debug:
+    msg: "Pi-hole version installed: {{ pihole_version_output.stdout }}"

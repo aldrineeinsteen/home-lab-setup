@@ -1,0 +1,217 @@
+---
+# Pi-hole Configuration Tasks
+# Handles post-installation configuration including admin password, DNS, and DHCP
+
+- name: Set Pi-hole admin password
+  command: pihole -a -p "{{ pihole_admin_password }}"
+  when: pihole_admin_password is defined and pihole_admin_password != ""
+  no_log: true
+  notify: restart pihole-FTL
+
+- name: Configure Pi-hole DNS settings
+  lineinfile:
+    path: /etc/pihole/setupVars.conf
+    regexp: "^PIHOLE_DNS_.*"
+    state: absent
+  notify: restart pihole-FTL
+
+- name: Set DNS servers in setupVars.conf
+  lineinfile:
+    path: /etc/pihole/setupVars.conf
+    regexp: "^PIHOLE_DNS_{{ ansible_loop.index }}="
+    line: "PIHOLE_DNS_{{ ansible_loop.index }}={{ item }}"
+    create: true
+  loop: "{{ pihole_dns_servers | default(['1.1.1.1', '1.0.0.1']) }}"
+  loop_control:
+    extended: true
+  notify: restart pihole-FTL
+
+- name: Configure Pi-hole interface
+  lineinfile:
+    path: /etc/pihole/setupVars.conf
+    regexp: "^PIHOLE_INTERFACE="
+    line: "PIHOLE_INTERFACE={{ pihole_interface }}"
+    create: true
+  notify: restart pihole-FTL
+
+- name: Configure Pi-hole web interface
+  lineinfile:
+    path: /etc/pihole/setupVars.conf
+    regexp: "^INSTALL_WEB_INTERFACE="
+    line: "INSTALL_WEB_INTERFACE={{ pihole_web_interface | default(true) | bool | lower }}"
+    create: true
+  notify: restart pihole-FTL
+
+- name: Configure Pi-hole web server
+  lineinfile:
+    path: /etc/pihole/setupVars.conf
+    regexp: "^INSTALL_WEB_SERVER="
+    line: "INSTALL_WEB_SERVER=true"
+    create: true
+  notify: restart pihole-FTL
+
+- name: Configure Pi-hole logging
+  lineinfile:
+    path: /etc/pihole/setupVars.conf
+    regexp: "^QUERY_LOGGING="
+    line: "QUERY_LOGGING=true"
+    create: true
+  notify: restart pihole-FTL
+
+- name: Configure Pi-hole privacy level
+  lineinfile:
+    path: /etc/pihole/setupVars.conf
+    regexp: "^PRIVACY_LEVEL="
+    line: "PRIVACY_LEVEL=0"
+    create: true
+  notify: restart pihole-FTL
+
+- name: Configure DHCP settings (if enabled) using modern Pi-hole FTL config
+  block:
+    - name: Configure DHCP using Pi-hole FTL configuration (modern approach)
+      block:
+        - name: Set DHCP start address
+          command: pihole-FTL --config dhcp.start {{ pihole_dhcp_start }}
+          register: dhcp_start_result
+          changed_when: dhcp_start_result.stdout != pihole_dhcp_start
+
+        - name: Set DHCP end address  
+          command: pihole-FTL --config dhcp.end {{ pihole_dhcp_end }}
+          register: dhcp_end_result
+          changed_when: dhcp_end_result.stdout != pihole_dhcp_end
+
+        - name: Set DHCP router/gateway address
+          command: pihole-FTL --config dhcp.router {{ pihole_dhcp_router }}
+          register: dhcp_router_result
+          changed_when: dhcp_router_result.stdout != pihole_dhcp_router
+
+        - name: Set DHCP lease time
+          command: pihole-FTL --config dhcp.leaseTime {{ pihole_dhcp_lease_time | default('24h') }}
+          register: dhcp_lease_result
+          changed_when: dhcp_lease_result.stdout != (pihole_dhcp_lease_time | default('24h'))
+
+        - name: Enable DHCP logging for debugging
+          command: pihole-FTL --config dhcp.logging true
+          register: dhcp_logging_result
+          changed_when: dhcp_logging_result.stdout != 'true'
+
+        - name: Disable IPv6 DHCP (for simplicity)
+          command: pihole-FTL --config dhcp.ipv6 false
+          register: dhcp_ipv6_result
+          changed_when: dhcp_ipv6_result.stdout != 'false'
+
+        - name: Enable DHCP server
+          command: pihole-FTL --config dhcp.active true
+          register: dhcp_active_result
+          changed_when: dhcp_active_result.stdout != 'true'
+          notify: restart pihole-FTL
+
+        - name: Display DHCP configuration summary
+          debug:
+            msg: |
+              DHCP Configuration Applied:
+              - Active: {{ dhcp_active_result.stdout }}
+              - Range: {{ dhcp_start_result.stdout }} - {{ dhcp_end_result.stdout }}
+              - Gateway: {{ dhcp_router_result.stdout }}
+              - Lease Time: {{ dhcp_lease_result.stdout }}
+              - Logging: {{ dhcp_logging_result.stdout }}
+              - IPv6: {{ dhcp_ipv6_result.stdout }}
+
+        - name: Validate DHCP server is listening on port 67
+          shell: ss -ulnp | grep ':67'
+          register: dhcp_port_check
+          changed_when: false
+          failed_when: false
+
+        - name: Display DHCP port status
+          debug:
+            msg: |
+              DHCP Port 67 Status: {{ 'LISTENING' if dhcp_port_check.rc == 0 else 'NOT LISTENING' }}
+              {% if dhcp_port_check.rc == 0 %}
+              Details: {{ dhcp_port_check.stdout }}
+              {% endif %}
+
+  when: pihole_dhcp_enabled | default(false) | bool
+
+- name: Disable DHCP (if not enabled)
+  lineinfile:
+    path: /etc/pihole/setupVars.conf
+    regexp: "^DHCP_ACTIVE="
+    line: "DHCP_ACTIVE=false"
+    create: true
+  when: not (pihole_dhcp_enabled | default(false) | bool)
+  notify: restart pihole-FTL
+
+- name: Ensure Pi-hole configuration is applied
+  command: pihole restartdns reload-lists
+  changed_when: false
+
+- name: Verify DHCP configuration (if enabled)
+  block:
+    - name: Check if DHCP is active in Pi-hole
+      command: pihole status
+      register: pihole_status_output
+      changed_when: false
+      failed_when: false
+
+    - name: Display DHCP status information
+      debug:
+        msg: |
+          Pi-hole Status Output:
+          {{ pihole_status_output.stdout | default('No output') }}
+
+    - name: Check dnsmasq DHCP process
+      shell: ps aux | grep dnsmasq | grep -v grep
+      register: dnsmasq_processes
+      changed_when: false
+      failed_when: false
+
+    - name: Display dnsmasq process information
+      debug:
+        msg: |
+          DNSmasq Processes:
+          {{ dnsmasq_processes.stdout | default('No dnsmasq processes found') }}
+
+    - name: Check DHCP lease file exists (if DHCP is enabled)
+      stat:
+        path: /var/lib/dhcp/dhcpd.leases
+      register: dhcp_lease_file
+      when: pihole_dhcp_enabled | default(false) | bool
+
+    - name: Check Pi-hole DHCP lease file
+      stat:
+        path: /etc/pihole/dhcp.leases
+      register: pihole_dhcp_lease_file
+      when: pihole_dhcp_enabled | default(false) | bool
+
+    - name: Display DHCP lease file status
+      debug:
+        msg: |
+          DHCP Lease Files Status:
+          - /var/lib/dhcp/dhcpd.leases: {{ 'exists' if dhcp_lease_file.stat.exists | default(false) else 'not found' }}
+          - /etc/pihole/dhcp.leases: {{ 'exists' if pihole_dhcp_lease_file.stat.exists | default(false) else 'not found' }}
+      when: pihole_dhcp_enabled | default(false) | bool
+
+    - name: Test DHCP functionality by checking dnsmasq configuration
+      shell: |
+        if [ -f /etc/dnsmasq.d/04-pihole-dhcp.conf ]; then
+          echo "DHCP config file exists"
+          cat /etc/dnsmasq.d/04-pihole-dhcp.conf
+        elif grep -q "DHCP_ACTIVE=true" /etc/pihole/setupVars.conf 2>/dev/null; then
+          echo "DHCP enabled in setupVars.conf"
+          grep DHCP /etc/pihole/setupVars.conf
+        else
+          echo "DHCP configuration not found"
+        fi
+      register: dhcp_config_check
+      changed_when: false
+      when: pihole_dhcp_enabled | default(false) | bool
+
+    - name: Display DHCP configuration
+      debug:
+        msg: |
+          DHCP Configuration Status:
+          {{ dhcp_config_check.stdout | default('DHCP not enabled') }}
+      when: pihole_dhcp_enabled | default(false) | bool
+
+  when: pihole_dhcp_enabled | default(false) | bool

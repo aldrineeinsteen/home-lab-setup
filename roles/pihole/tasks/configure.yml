@@ -1,0 +1,295 @@
+---
+# Pi-hole Configuration Tasks - Modern FTL API Approach
+# Handles post-installation configuration using pihole-FTL --config commands
+# Compatible with Pi-hole v6+ modern configuration methods
+
+- name: Set Pi-hole admin password
+  command: pihole -a -p "{{ pihole_admin_password }}"
+  when: pihole_admin_password is defined and pihole_admin_password != ""
+  no_log: true
+  register: password_result
+  changed_when: password_result.rc == 0
+  notify: restart pihole-FTL
+
+- name: Configure Pi-hole DNS settings using modern FTL config
+  block:
+    - name: Get current DNS servers
+      command: pihole-FTL --config dns.upstreams
+      register: current_dns
+      changed_when: false
+      failed_when: false
+
+    - name: Configure DNS upstream servers via FTL config
+      command: pihole-FTL --config dns.upstreams '{{ pihole_dns_servers | to_json }}'
+      register: dns_config_result
+      changed_when: dns_config_result.stdout != (pihole_dns_servers | to_json)
+      notify: restart pihole-FTL
+
+    - name: Display DNS configuration
+      debug:
+        msg: |
+          DNS Configuration:
+          - Previous: {{ current_dns.stdout | default('Not available') }}
+          - Current: {{ pihole_dns_servers | to_json }}
+          - Servers: {{ pihole_dns_servers | join(', ') }}
+          - Status: {{ 'Updated' if dns_config_result.changed else 'No change needed' }}
+
+- name: Configure Pi-hole interface using FTL config
+  block:
+    - name: Get current interface setting
+      command: pihole-FTL --config dns.interface
+      register: current_interface
+      changed_when: false
+      failed_when: false
+
+    - name: Set Pi-hole network interface via FTL config
+      command: pihole-FTL --config dns.interface "{{ pihole_interface }}"
+      register: interface_config_result
+      changed_when: interface_config_result.stdout != pihole_interface
+      notify: restart pihole-FTL
+
+    - name: Display interface configuration
+      debug:
+        msg: |
+          Interface Configuration:
+          - Previous: {{ current_interface.stdout | default('Not available') }}
+          - Current: {{ pihole_interface }}
+          - Status: {{ 'Updated' if interface_config_result.changed else 'No change needed' }}
+
+- name: Configure Pi-hole web interface settings
+  block:
+    - name: Check if web interface is enabled (via setupVars.conf)
+      lineinfile:
+        path: /etc/pihole/setupVars.conf
+        regexp: "^INSTALL_WEB_INTERFACE="
+        line: "INSTALL_WEB_INTERFACE={{ pihole_web_interface | default(true) | bool | lower }}"
+        create: true
+      register: web_interface_result
+      notify: restart pihole-FTL
+
+    - name: Display web interface status
+      debug:
+        msg: |
+          Web Interface Configuration:
+          - Enabled: {{ pihole_web_interface | default(true) }}
+          - Status: Web interface is managed by Pi-hole FTL built-in server
+          - Note: Port configuration handled by Pi-hole internally
+
+- name: Configure Pi-hole logging settings via FTL config
+  block:
+    - name: Enable query logging
+      command: pihole-FTL --config dns.queryLogging true
+      register: logging_result
+      changed_when: logging_result.rc == 0
+      notify: restart pihole-FTL
+
+    - name: Set privacy level (0 = show everything)
+      command: pihole-FTL --config misc.privacylevel 0
+      register: privacy_result
+      changed_when: privacy_result.rc == 0
+      notify: restart pihole-FTL
+
+- name: Configure Pi-hole cache settings via setupVars.conf (fallback)
+  block:
+    - name: Set DNS cache size in setupVars.conf
+      lineinfile:
+        path: /etc/pihole/setupVars.conf
+        regexp: "^CACHE_SIZE="
+        line: "CACHE_SIZE=10000"
+        create: true
+      register: cache_size_result
+      notify: restart pihole-FTL
+
+    - name: Display cache configuration
+      debug:
+        msg: |
+          Cache Configuration:
+          - Cache size: 10000 entries (configured via setupVars.conf)
+          - Note: Some cache options may not be available via FTL config in all versions
+
+- name: Configure DHCP settings (if enabled) using modern Pi-hole FTL config
+  block:
+    - name: Configure DHCP using Pi-hole FTL configuration (modern approach)
+      block:
+        - name: Set DHCP start address
+          command: pihole-FTL --config dhcp.start {{ pihole_dhcp_start }}
+          register: dhcp_start_result
+          changed_when: dhcp_start_result.stdout != pihole_dhcp_start
+
+        - name: Set DHCP end address  
+          command: pihole-FTL --config dhcp.end {{ pihole_dhcp_end }}
+          register: dhcp_end_result
+          changed_when: dhcp_end_result.stdout != pihole_dhcp_end
+
+        - name: Set DHCP router/gateway address
+          command: pihole-FTL --config dhcp.router {{ pihole_dhcp_router }}
+          register: dhcp_router_result
+          changed_when: dhcp_router_result.stdout != pihole_dhcp_router
+
+        - name: Set DHCP lease time
+          command: pihole-FTL --config dhcp.leaseTime {{ pihole_dhcp_lease_time | default('24h') }}
+          register: dhcp_lease_result
+          changed_when: dhcp_lease_result.stdout != (pihole_dhcp_lease_time | default('24h'))
+
+        - name: Enable DHCP logging for debugging
+          command: pihole-FTL --config dhcp.logging true
+          register: dhcp_logging_result
+          changed_when: dhcp_logging_result.stdout != 'true'
+
+        - name: Configure DHCP domain name
+          command: pihole-FTL --config dhcp.domain "{{ pihole_network_postfix | default('lan') }}"
+          register: dhcp_domain_result
+          changed_when: dhcp_domain_result.stdout != (pihole_network_postfix | default('lan'))
+
+        - name: Disable IPv6 DHCP (for simplicity)
+          command: pihole-FTL --config dhcp.ipv6 false
+          register: dhcp_ipv6_result
+          changed_when: dhcp_ipv6_result.stdout != 'false'
+
+        - name: Enable DHCP server
+          command: pihole-FTL --config dhcp.active true
+          register: dhcp_active_result
+          changed_when: dhcp_active_result.stdout != 'true'
+          notify: restart pihole-FTL
+
+        - name: Display DHCP configuration summary
+          debug:
+            msg: |
+              DHCP Configuration Applied via FTL Config:
+              - Active: {{ dhcp_active_result.stdout }}
+              - Range: {{ dhcp_start_result.stdout }} - {{ dhcp_end_result.stdout }}
+              - Gateway: {{ dhcp_router_result.stdout }}
+              - Domain: {{ dhcp_domain_result.stdout }}
+              - Lease Time: {{ dhcp_lease_result.stdout }}
+              - Logging: {{ dhcp_logging_result.stdout }}
+              - IPv6: {{ dhcp_ipv6_result.stdout }}
+
+        - name: Validate DHCP server is listening on port 67
+          shell: ss -ulnp | grep ':67'
+          register: dhcp_port_check
+          changed_when: false
+          failed_when: false
+
+        - name: Display DHCP port status
+          debug:
+            msg: |
+              DHCP Port 67 Status: {{ 'LISTENING' if dhcp_port_check.rc == 0 else 'NOT LISTENING' }}
+              {% if dhcp_port_check.rc == 0 %}
+              Details: {{ dhcp_port_check.stdout }}
+              {% endif %}
+
+  when: pihole_dhcp_enabled | default(false) | bool
+
+- name: Disable DHCP (if not enabled) using FTL config
+  command: pihole-FTL --config dhcp.active false
+  register: dhcp_disable_result
+  changed_when: dhcp_disable_result.stdout != 'false'
+  when: not (pihole_dhcp_enabled | default(false) | bool)
+  notify: restart pihole-FTL
+
+- name: Configure additional Pi-hole FTL settings
+  block:
+    - name: Configure DNS blocking mode via setupVars.conf
+      lineinfile:
+        path: /etc/pihole/setupVars.conf
+        regexp: "^BLOCKING_ENABLED="
+        line: "BLOCKING_ENABLED=true"
+        create: true
+      register: blocking_mode_result
+      notify: restart pihole-FTL
+
+    - name: Display additional DNS configuration
+      debug:
+        msg: |
+          Additional DNS Configuration:
+          - Blocking enabled: true
+          - Conditional forwarding: Configured via network.yml if needed
+          - Note: Some FTL config options may vary by Pi-hole version
+
+- name: Apply Pi-hole configuration and restart DNS
+  command: pihole restartdns reload
+  changed_when: false
+
+- name: Verify Pi-hole FTL configuration via API
+  block:
+    - name: Get Pi-hole configuration via API
+      uri:
+        url: "http://localhost/api/config"
+        method: GET
+        return_content: yes
+      register: pihole_config_api
+      become: false
+      failed_when: false
+
+    - name: Display configuration summary via API
+      debug:
+        msg: |
+          Pi-hole Configuration Summary (via API):
+          - DNS Servers: {{ pihole_config_api.json.dns_servers | default('Not available') | join(', ') if pihole_config_api.json is defined }}
+          - DHCP Active: {{ pihole_config_api.json.dhcp.active | default('Not available') if pihole_config_api.json is defined }}
+          - Web Interface: {{ 'Enabled' if pihole_config_api.json.web_interface | default(false) else 'Disabled' if pihole_config_api.json is defined }}
+          - Query Logging: {{ 'Enabled' if pihole_config_api.json.query_logging | default(false) else 'Disabled' if pihole_config_api.json is defined }}
+      when: pihole_config_api.json is defined
+
+- name: Verify DHCP configuration (if enabled)
+  block:
+    - name: Check if DHCP is active in Pi-hole via FTL config
+      command: pihole-FTL --config dhcp.active
+      register: dhcp_status_check
+      changed_when: false
+      failed_when: false
+
+    - name: Display DHCP status information
+      debug:
+        msg: |
+          DHCP Status (via FTL Config):
+          - Active: {{ dhcp_status_check.stdout | default('Unable to determine') }}
+
+    - name: Check dnsmasq DHCP process
+      shell: ps aux | grep dnsmasq | grep -v grep
+      register: dnsmasq_processes
+      changed_when: false
+      failed_when: false
+
+    - name: Display dnsmasq process information
+      debug:
+        msg: |
+          DNSmasq Processes:
+          {{ dnsmasq_processes.stdout | default('No dnsmasq processes found') }}
+
+    - name: Check Pi-hole DHCP lease file
+      stat:
+        path: /etc/pihole/dhcp.leases
+      register: pihole_dhcp_lease_file
+
+    - name: Display DHCP lease file status
+      debug:
+        msg: |
+          DHCP Lease File Status:
+          - /etc/pihole/dhcp.leases: {{ 'exists' if pihole_dhcp_lease_file.stat.exists else 'not found' }}
+          {% if pihole_dhcp_lease_file.stat.exists %}
+          - Size: {{ pihole_dhcp_lease_file.stat.size }} bytes
+          - Modified: {{ pihole_dhcp_lease_file.stat.mtime | default('unknown') }}
+          {% endif %}
+
+    - name: Test DHCP functionality by checking FTL configuration
+      block:
+        - name: Get all DHCP configuration via FTL
+          shell: |
+            echo "DHCP Configuration Summary:"
+            echo "Active: $(pihole-FTL --config dhcp.active 2>/dev/null || echo 'N/A')"
+            echo "Range: $(pihole-FTL --config dhcp.start 2>/dev/null || echo 'N/A') - $(pihole-FTL --config dhcp.end 2>/dev/null || echo 'N/A')"
+            echo "Router: $(pihole-FTL --config dhcp.router 2>/dev/null || echo 'N/A')"
+            echo "Domain: $(pihole-FTL --config dhcp.domain 2>/dev/null || echo 'N/A')"
+            echo "Lease Time: $(pihole-FTL --config dhcp.leaseTime 2>/dev/null || echo 'N/A')"
+            echo "IPv6: $(pihole-FTL --config dhcp.ipv6 2>/dev/null || echo 'N/A')"
+            echo "Logging: $(pihole-FTL --config dhcp.logging 2>/dev/null || echo 'N/A')"
+          register: dhcp_ftl_config_check
+          changed_when: false
+
+        - name: Display DHCP FTL configuration
+          debug:
+            msg: |
+              {{ dhcp_ftl_config_check.stdout }}
+
+  when: pihole_dhcp_enabled | default(false) | bool

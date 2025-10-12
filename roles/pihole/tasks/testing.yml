@@ -1,0 +1,376 @@
+---
+# Pi-hole API Integration Testing Tasks
+# Comprehensive testing of pihole-FTL configuration commands and API endpoints
+# Compatible with Pi-hole v6+
+
+- name: Test Pi-hole FTL Configuration Commands
+  block:
+    - name: Test basic FTL config command functionality
+      command: pihole-FTL --help
+      register: ftl_help_result
+      changed_when: false
+      failed_when: ftl_help_result.rc != 0
+
+    - name: Test FTL config parameter reading
+      shell: |
+        echo "Testing FTL configuration reading:"
+        echo "DNS upstreams: $(pihole-FTL --config dns.upstreams 2>/dev/null || echo 'Not available')"
+        echo "DNS interface: $(pihole-FTL --config dns.interface 2>/dev/null || echo 'Not available')"
+        echo "DHCP active: $(pihole-FTL --config dhcp.active 2>/dev/null || echo 'Not available')"
+        echo "Web interface: $(pihole-FTL --config webserver.interface 2>/dev/null || echo 'Not available')"
+        echo "Query logging: $(pihole-FTL --config dns.queryLogging 2>/dev/null || echo 'Not available')"
+      register: ftl_config_test
+      changed_when: false
+      failed_when: false
+
+    - name: Display FTL configuration test results
+      debug:
+        msg: |
+          Pi-hole FTL Configuration Test Results:
+          {{ ftl_config_test.stdout }}
+
+  tags: ['testing', 'ftl']
+
+- name: Test Pi-hole API Endpoints
+  block:
+    - name: Test Pi-hole summary API
+      uri:
+        url: "http://localhost/api.php?summary"
+        method: GET
+        return_content: yes
+      register: api_summary_test
+      become: false
+      failed_when: false
+
+    - name: Test Pi-hole version API
+      uri:
+        url: "http://localhost/api.php?version"
+        method: GET
+        return_content: yes
+      register: api_version_test
+      become: false
+      failed_when: false
+
+    - name: Test Pi-hole type API (blocking status)
+      uri:
+        url: "http://localhost/api.php?type"
+        method: GET
+        return_content: yes
+      register: api_type_test
+      become: false
+      failed_when: false
+
+    - name: Test Pi-hole lists API
+      uri:
+        url: "http://localhost/api/lists"
+        method: GET
+        return_content: yes
+      register: api_lists_test
+      become: false
+      failed_when: false
+
+    - name: Display API test results summary
+      debug:
+        msg: |
+          Pi-hole API Test Results:
+          - Summary API: {{ 'PASSED' if (api_summary_test is defined and api_summary_test.status == 200) else 'SKIPPED/FAILED' }}
+          - Version API: {{ 'PASSED' if (api_version_test is defined and api_version_test.status == 200) else 'SKIPPED/FAILED' }}
+          - Type API: {{ 'PASSED' if (api_type_test is defined and api_type_test.status == 200) else 'SKIPPED/FAILED' }}
+          - Lists API: {{ 'PASSED' if (api_lists_test is defined and api_lists_test.status == 200) else 'SKIPPED/FAILED' }}
+
+    - name: Display detailed API responses
+      debug:
+        msg: |
+          Detailed API Responses:
+          
+          Summary API Response:
+          {% if api_summary_test is defined and api_summary_test.json is defined %}
+          - Domains blocked: {{ api_summary_test.json.domains_being_blocked | default('N/A') }}
+          - DNS queries today: {{ api_summary_test.json.dns_queries_today | default('N/A') }}
+          - Ads blocked today: {{ api_summary_test.json.ads_blocked_today | default('N/A') }}
+          - Ads percentage: {{ api_summary_test.json.ads_percentage_today | default('N/A') }}%
+          {% else %}
+          - Summary API not available
+          {% endif %}
+          
+          Version API Response:
+          {% if api_version_test is defined and api_version_test.json is defined %}
+          - Pi-hole version: {{ api_version_test.json.version | default('N/A') }}
+          - FTL version: {{ api_version_test.json.FTL_version | default('N/A') }}
+          - Web interface version: {{ api_version_test.json.web_version | default('N/A') }}
+          {% else %}
+          - Version API not available
+          {% endif %}
+          
+          Lists API Response:
+          {% if api_lists_test is defined and api_lists_test.json is defined and api_lists_test.json.lists is defined %}
+          - Total lists: {{ api_lists_test.json.lists | length }}
+          - Block lists: {{ (api_lists_test.json.lists | selectattr('type', 'equalto', 'block') | list) | length }}
+          - Allow lists: {{ (api_lists_test.json.lists | selectattr('type', 'equalto', 'allow') | list) | length }}
+          {% else %}
+          - Lists API not available
+          {% endif %}
+
+  tags: ['testing', 'api']
+
+- name: Test Pi-hole Command Line Tools
+  block:
+    - name: Test pihole status command
+      command: pihole status
+      register: pihole_status_test
+      changed_when: false
+      failed_when: false
+
+    - name: Test pihole version command
+      command: pihole version --short
+      register: pihole_version_cmd_test
+      changed_when: false
+      failed_when: false
+
+    - name: Test pihole adlist command (list current)
+      command: pihole adlist list
+      register: pihole_adlist_test
+      changed_when: false
+      failed_when: false
+
+    - name: Test pihole allowlist command (list current)
+      command: pihole allowlist list
+      register: pihole_allowlist_test
+      changed_when: false
+      failed_when: false
+
+    - name: Display command line tool test results
+      debug:
+        msg: |
+          Pi-hole Command Line Tools Test Results:
+          
+          Status Command:
+          {{ pihole_status_test.stdout | default('Failed to get status') }}
+          
+          Version Command:
+          {{ pihole_version_cmd_test.stdout | default('Failed to get version') }}
+          
+          Adlist Command:
+          {{ pihole_adlist_test.stdout | default('No adlists or command failed') | truncate(500) }}
+          
+          Allowlist Command:
+          {{ pihole_allowlist_test.stdout | default('No allowlist entries or command failed') | truncate(500) }}
+
+  tags: ['testing', 'commands']
+
+- name: Test DNS Resolution and Blocking
+  block:
+    - name: Test external DNS resolution
+      command: dig @localhost google.com +short
+      register: dns_resolution_test
+      changed_when: false
+      failed_when: false
+
+    - name: Test DNS blocking functionality
+      command: dig @localhost doubleclick.net +short
+      register: dns_blocking_test
+      changed_when: false
+      failed_when: false
+
+    - name: Test DNS blocking with nslookup
+      command: nslookup doubleclick.net localhost
+      register: nslookup_blocking_test
+      changed_when: false
+      failed_when: false
+
+    - name: Display DNS testing results
+      debug:
+        msg: |
+          DNS Testing Results:
+          
+          External DNS Resolution (google.com):
+          - Status: {{ 'PASSED' if dns_resolution_test.stdout else 'FAILED' }}
+          - Response: {{ dns_resolution_test.stdout | default('No response') }}
+          
+          DNS Blocking Test (doubleclick.net):
+          - Status: {{ 'PASSED (blocked)' if '0.0.0.0' in dns_blocking_test.stdout or dns_blocking_test.stdout == '' else 'NEEDS_REVIEW' }}
+          - Response: {{ dns_blocking_test.stdout | default('No response') }}
+          
+          NSLookup Blocking Test:
+          - Status: {{ 'PASSED (blocked)' if 'NXDOMAIN' in nslookup_blocking_test.stderr or '0.0.0.0' in nslookup_blocking_test.stdout else 'NEEDS_REVIEW' }}
+
+  tags: ['testing', 'dns']
+
+- name: Test DHCP Configuration (if enabled)
+  block:
+    - name: Test DHCP FTL configuration commands
+      shell: |
+        echo "DHCP Configuration Test:"
+        echo "Active: $(pihole-FTL --config dhcp.active 2>/dev/null || echo 'N/A')"
+        echo "Start IP: $(pihole-FTL --config dhcp.start 2>/dev/null || echo 'N/A')"
+        echo "End IP: $(pihole-FTL --config dhcp.end 2>/dev/null || echo 'N/A')"
+        echo "Router: $(pihole-FTL --config dhcp.router 2>/dev/null || echo 'N/A')"
+        echo "Domain: $(pihole-FTL --config dhcp.domain 2>/dev/null || echo 'N/A')"
+        echo "Lease Time: $(pihole-FTL --config dhcp.leaseTime 2>/dev/null || echo 'N/A')"
+        echo "IPv6: $(pihole-FTL --config dhcp.ipv6 2>/dev/null || echo 'N/A')"
+        echo "Logging: $(pihole-FTL --config dhcp.logging 2>/dev/null || echo 'N/A')"
+      register: dhcp_config_test
+      changed_when: false
+
+    - name: Check DHCP server port binding
+      shell: ss -ulnp | grep ':67' || echo "DHCP port 67 not listening"
+      register: dhcp_port_test
+      changed_when: false
+      failed_when: false
+
+    - name: Check DHCP lease file
+      stat:
+        path: /etc/pihole/dhcp.leases
+      register: dhcp_lease_file_test
+
+    - name: Display DHCP testing results
+      debug:
+        msg: |
+          DHCP Testing Results:
+          
+          {{ dhcp_config_test.stdout }}
+          
+          Port 67 Status:
+          {{ dhcp_port_test.stdout }}
+          
+          DHCP Lease File:
+          - Exists: {{ dhcp_lease_file_test.stat.exists }}
+          {% if dhcp_lease_file_test.stat.exists %}
+          - Size: {{ dhcp_lease_file_test.stat.size }} bytes
+          - Modified: {{ dhcp_lease_file_test.stat.mtime }}
+          {% endif %}
+
+  when: pihole_dhcp_enabled | default(false) | bool
+  tags: ['testing', 'dhcp']
+
+- name: Test Custom DNS Configuration (if configured)
+  block:
+    - name: Test custom DNS entries
+      command: dig @localhost {{ item.domain }} +short
+      loop: "{{ pihole_custom_dns | default([]) }}"
+      register: custom_dns_test_results
+      changed_when: false
+      failed_when: false
+
+    - name: Check custom DNS file
+      stat:
+        path: /etc/pihole/custom.list
+      register: custom_dns_file_test
+
+    - name: Display custom DNS testing results
+      debug:
+        msg: |
+          Custom DNS Testing Results:
+          
+          Custom DNS File:
+          - Exists: {{ custom_dns_file_test.stat.exists }}
+          {% if custom_dns_file_test.stat.exists %}
+          - Size: {{ custom_dns_file_test.stat.size }} bytes
+          {% endif %}
+          
+          DNS Resolution Tests:
+          {% for result in custom_dns_test_results.results | default([]) %}
+          - {{ result.item.domain }}: {{ result.stdout if result.stdout else 'FAILED' }} (Expected: {{ result.item.ip }})
+          {% endfor %}
+
+  when: pihole_custom_dns is defined and pihole_custom_dns | length > 0
+  tags: ['testing', 'custom_dns']
+
+- name: Generate Comprehensive Test Report
+  block:
+    - name: Create test report summary
+      set_fact:
+        test_report: |
+          Pi-hole Integration Test Report
+          ==============================
+          Generated: {{ ansible_date_time.iso8601 }}
+          Host: {{ inventory_hostname }}
+          Pi-hole Version: {{ pihole_version_cmd_test.stdout | default('Unknown') }}
+          
+          Test Results Summary:
+          - FTL Commands: {{ 'PASSED' if ftl_help_result.rc == 0 else 'FAILED' }}
+          - API Endpoints: {{ 'PASSED' if api_summary_test.status == 200 else 'FAILED' }}
+          - DNS Resolution: {{ 'PASSED' if dns_resolution_test.stdout else 'FAILED' }}
+          - DNS Blocking: {{ 'PASSED' if '0.0.0.0' in dns_blocking_test.stdout or dns_blocking_test.stdout == '' else 'NEEDS_REVIEW' }}
+          - Command Line Tools: {{ 'PASSED' if pihole_status_test.rc == 0 else 'FAILED' }}
+          {% if pihole_dhcp_enabled | default(false) %}
+          - DHCP Configuration: {{ 'PASSED' if dhcp_port_test.stdout != 'DHCP port 67 not listening' else 'FAILED' }}
+          {% endif %}
+          {% if pihole_custom_dns is defined and pihole_custom_dns | length > 0 %}
+          - Custom DNS: {{ 'PASSED' if custom_dns_file_test.stat.exists else 'FAILED' }}
+          {% endif %}
+
+    - name: Display final test report
+      debug:
+        msg: "{{ test_report }}"
+
+    - name: Save test report to file
+      copy:
+        content: "{{ test_report }}"
+        dest: /tmp/pihole-test-report-{{ ansible_date_time.epoch }}.txt
+        owner: root
+        group: root
+        mode: '0644'
+
+  tags: ['testing', 'report']
+
+- name: Create Pi-hole testing script for future use
+  copy:
+    content: |
+      #!/bin/bash
+      # Pi-hole Comprehensive Testing Script
+      # Generated by Ansible
+      
+      echo "=== Pi-hole Comprehensive Test ==="
+      echo "Date: $(date)"
+      echo
+      
+      echo "=== Pi-hole Version ==="
+      pihole version --short
+      echo
+      
+      echo "=== FTL Configuration Tests ==="
+      echo "DNS upstreams: $(pihole-FTL --config dns.upstreams 2>/dev/null || echo 'N/A')"
+      echo "DNS interface: $(pihole-FTL --config dns.interface 2>/dev/null || echo 'N/A')"
+      echo "Query logging: $(pihole-FTL --config dns.queryLogging 2>/dev/null || echo 'N/A')"
+      echo "Web interface: $(pihole-FTL --config webserver.interface 2>/dev/null || echo 'N/A')"
+      {% if pihole_dhcp_enabled | default(false) %}
+      echo "DHCP active: $(pihole-FTL --config dhcp.active 2>/dev/null || echo 'N/A')"
+      echo "DHCP range: $(pihole-FTL --config dhcp.start 2>/dev/null || echo 'N/A') - $(pihole-FTL --config dhcp.end 2>/dev/null || echo 'N/A')"
+      {% endif %}
+      echo
+      
+      echo "=== API Tests ==="
+      echo "Summary API: $(curl -s http://localhost/api.php?summary | jq -r '.domains_being_blocked // "Failed"' 2>/dev/null || echo 'Failed')"
+      echo "Version API: $(curl -s http://localhost/api.php?version | jq -r '.version // "Failed"' 2>/dev/null || echo 'Failed')"
+      echo "Lists API: $(curl -s http://localhost/api/lists | jq -r '.lists | length // "Failed"' 2>/dev/null || echo 'Failed')"
+      echo
+      
+      echo "=== DNS Tests ==="
+      echo "External DNS (google.com): $(dig @localhost google.com +short | head -1)"
+      echo "Blocking test (doubleclick.net): $(dig @localhost doubleclick.net +short | head -1)"
+      {% if pihole_custom_dns is defined and pihole_custom_dns | length > 0 %}
+      {% for dns_entry in pihole_custom_dns %}
+      echo "Custom DNS ({{ dns_entry.domain }}): $(dig @localhost {{ dns_entry.domain }} +short | head -1)"
+      {% endfor %}
+      {% endif %}
+      echo
+      
+      echo "=== Service Status ==="
+      systemctl is-active pihole-FTL
+      echo "Pi-hole status: $(pihole status)"
+      echo
+      
+      {% if pihole_dhcp_enabled | default(false) %}
+      echo "=== DHCP Tests ==="
+      echo "Port 67 status: $(ss -ulnp | grep ':67' | wc -l) listeners"
+      echo "DHCP leases: $(wc -l < /etc/pihole/dhcp.leases 2>/dev/null || echo '0') entries"
+      echo
+      {% endif %}
+      
+      echo "=== Test Complete ==="
+    dest: /usr/local/bin/pihole-test-all
+    owner: root
+    group: root
+    mode: '0755'
+  tags: ['testing', 'script']

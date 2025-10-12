@@ -1,0 +1,105 @@
+---
+# Pi-hole Home Lab Setup Playbook
+# This playbook automates the installation and configuration of Pi-hole
+# 
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/pihole.yml --extra-vars "@.env.yaml"
+#
+# Prerequisites:
+#   1. Copy .env.template.yaml to .env.yaml and configure your settings
+#   2. Ensure target machines are accessible via SSH
+#   3. Ensure target machines have sudo access configured
+
+- name: Deploy Pi-hole to Home Lab
+  hosts: pihole_servers
+  become: true
+  gather_facts: true
+  
+  vars:
+    # Fail if required variables are not defined
+    required_vars:
+      - pihole_admin_password
+      - pihole_interface
+      - pihole_dns_servers
+    
+  pre_tasks:
+    - name: Validate required variables are defined
+      fail:
+        msg: "Required variable {{ item }} is not defined"
+      when: vars[item] is not defined or vars[item] == ""
+      loop: "{{ required_vars }}"
+      tags: always
+    
+    - name: Display deployment information
+      debug:
+        msg: |
+          Deploying Pi-hole to: {{ inventory_hostname }}
+          Target IP: {{ ansible_host }}
+          Interface: {{ pihole_interface }}
+          DNS Servers: {{ pihole_dns_servers | join(', ') }}
+          Web Interface: {{ pihole_web_interface | default(true) }}
+          DHCP Enabled: {{ pihole_dhcp_enabled | default(false) }}
+          Network Domain: {{ pihole_network_postfix | default('local') }}
+          Custom DNS Entries: {{ pihole_custom_dns | length if pihole_custom_dns is defined else 0 }}
+      tags: always
+    
+    - name: Update package cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      tags: ['pihole', 'install']
+  
+  roles:
+    - role: pihole
+      tags: ['pihole']
+  
+  post_tasks:
+    - name: Verify Pi-hole installation
+      uri:
+        url: "http://{{ ansible_host }}:{{ pihole_web_port | default(80) }}/admin/"
+        method: GET
+        status_code: 200
+      delegate_to: localhost
+      register: pihole_web_check
+      failed_when: false
+      become: false
+      tags: ['pihole', 'verify']
+    
+    - name: Display Pi-hole access information
+      debug:
+        msg: |
+          ====================================================
+          Pi-hole installation completed successfully!
+          ====================================================
+          Web Interface: http://{{ ansible_host }}:{{ pihole_web_port | default(80) }}/admin/
+          Admin Password: {{ pihole_admin_password }}
+          DNS Server: {{ ansible_host }}
+          ====================================================
+          
+          Next Steps:
+          1. Configure your router to use {{ ansible_host }} as DNS server
+          2. Or configure individual devices to use {{ ansible_host }} as DNS
+          3. Access the web interface to monitor and configure
+          4. Check the blocklists and whitelist configuration
+          ====================================================
+      when: pihole_web_check.status == 200
+      tags: ['pihole', 'verify']
+    
+    - name: Warning if web interface is not accessible
+      debug:
+        msg: |
+          WARNING: Pi-hole web interface is not accessible at http://{{ ansible_host }}:{{ pihole_web_port | default(80) }}/admin/
+          Please check:
+          1. Pi-hole service status: sudo systemctl status pihole-FTL
+          2. Firewall configuration
+          3. Network connectivity
+      when: pihole_web_check.status != 200
+      tags: ['pihole', 'verify']
+
+# Additional playbook for future services can be added here
+# Example:
+# - name: Deploy NAS services
+#   hosts: nas_servers
+#   roles:
+#     - role: nas
+#   tags: ['nas']

@@ -1,0 +1,27 @@
+---
+# Pi-hole Role - Main Tasks
+# This file orchestrates the Pi-hole installation and configuration
+
+- name: Include installation tasks
+  include_tasks: install.yml
+  tags: ['install']
+
+- name: Include configuration tasks  
+  include_tasks: configure.yml
+  tags: ['configure']
+
+- name: Include blocklist management tasks
+  include_tasks: blocklists.yml
+  tags: ['blocklists']
+
+- name: Include network and DNS configuration tasks
+  include_tasks: network.yml
+  tags: ['network', 'dns']
+
+- name: Include service management tasks
+  include_tasks: services.yml
+  tags: ['services']
+
+- name: Include API integration testing tasks
+  include_tasks: testing.yml
+  tags: ['testing', 'verify']

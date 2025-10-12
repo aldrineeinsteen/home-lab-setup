@@ -1,0 +1,31 @@
+---
+# Ansible Requirements for Home Lab Setup
+# This file specifies external collections and roles needed for the playbook
+
+collections:
+  # Ansible Core Collections (usually included by default, but explicit for clarity)
+  - name: ansible.posix
+    version: ">=1.5.0"
+    source: https://galaxy.ansible.com
+  
+  - name: community.general
+    version: ">=7.0.0"
+    source: https://galaxy.ansible.com
+  
+  - name: ansible.utils
+    version: ">=2.10.0"
+    source: https://galaxy.ansible.com
+
+# External roles (if any are needed in the future)
+roles: []
+  # Example: If you want to use external roles for other services, uncomment and modify:
+  # - name: geerlingguy.docker
+  #   version: ">=6.0.0"
+  #   source: https://galaxy.ansible.com
+  
+  # - name: bertvv.bind
+  #   version: ">=3.0.0"
+  #   source: https://galaxy.ansible.com
+
+# To install these requirements, run:
+# ansible-galaxy install -r requirements.yml

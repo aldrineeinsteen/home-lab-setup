@@ -1,0 +1,124 @@
+---
+# Pi-hole List Management Tasks - Modern API Approach
+# Manages adlists, allowlist, denylist using Pi-hole FTL API and modern commands
+# Compatible with Pi-hole v6+
+
+- name: Debug blocklist variables
+  debug:
+    msg: |
+      Blocklist Variables Debug:
+      - pihole_blocklists defined: {{ pihole_blocklists is defined }}
+      - pihole_blocklists length: {{ pihole_blocklists | length if pihole_blocklists is defined else 'N/A' }}
+      - pihole_whitelist defined: {{ pihole_whitelist is defined }}
+      - pihole_whitelist length: {{ pihole_whitelist | length if pihole_whitelist is defined else 'N/A' }}
+      - pihole_blacklist defined: {{ pihole_blacklist is defined }}
+      - pihole_blacklist length: {{ pihole_blacklist | length if pihole_blacklist is defined else 'N/A' }}
+  tags: ['blocklists']
+
+- name: Get current Pi-hole lists via API
+  uri:
+    url: "http://localhost/api/lists"
+    method: GET
+    return_content: yes
+  register: current_lists
+  become: false
+  tags: ['blocklists']
+
+- name: Display current lists summary
+  debug:
+    msg: |
+      Current Pi-hole Lists Summary:
+      {% if current_lists is defined and current_lists.json is defined %}
+      - Total block lists: {{ (current_lists.json.lists | selectattr('type', 'equalto', 'block') | list) | length }}
+      - Total allow lists: {{ (current_lists.json.lists | selectattr('type', 'equalto', 'allow') | list) | length }}
+      - StevenBlack list present: {{ 'StevenBlack' in (current_lists.json.lists | map(attribute='comment') | join(' ')) }}
+      {% else %}
+      - API call was skipped or failed
+      - Check mode or API not available
+      {% endif %}
+  tags: ['blocklists']
+
+- name: Add additional adlists (blocklists) via modern Pi-hole commands
+  command: pihole adlist add "{{ item }}"
+  loop: "{{ pihole_blocklists | default([]) }}"
+  register: adlist_result
+  changed_when: "'Added' in adlist_result.stdout"
+  failed_when: false
+  when: 
+    - pihole_blocklists is defined 
+    - pihole_blocklists | length > 0
+    - current_lists is defined and current_lists.json is defined
+    - item not in (current_lists.json.lists | selectattr('type', 'equalto', 'block') | map(attribute='address') | list)
+  tags: ['blocklists']
+
+- name: Add allowlist domains via modern Pi-hole commands  
+  command: pihole allowlist add "{{ item }}"
+  loop: "{{ pihole_whitelist | default([]) }}"
+  register: allowlist_result
+  changed_when: allowlist_result.rc == 0
+  failed_when: false
+  when: 
+    - pihole_whitelist is defined 
+    - pihole_whitelist | length > 0
+    - current_lists is defined and current_lists.json is defined
+    - item not in (current_lists.json.lists | selectattr('type', 'equalto', 'allow') | map(attribute='address') | list)
+
+- name: Add denylist domains via modern Pi-hole commands
+  command: pihole denylist add "{{ item }}"  
+  loop: "{{ pihole_blacklist | default([]) }}"
+  register: denylist_result
+  changed_when: denylist_result.rc == 0
+  failed_when: false
+  when: 
+    - pihole_blacklist is defined 
+    - pihole_blacklist | length > 0
+    - current_lists is defined and current_lists.json is defined
+    - item not in (current_lists.json.lists | selectattr('type', 'equalto', 'block') | map(attribute='address') | list)
+
+- name: Add regex denylist via modern Pi-hole commands
+  command: pihole regex add "{{ item }}"
+  loop: "{{ pihole_regex_blacklist | default([]) }}"
+  register: regex_result
+  changed_when: regex_result.rc == 0
+  failed_when: false  
+  when: pihole_regex_blacklist is defined and pihole_regex_blacklist | length > 0
+
+- name: Update gravity database (pull latest blocklists)
+  command: pihole updateGravity
+  register: gravity_update
+  changed_when: true
+  when: 
+    - adlist_result is defined and adlist_result.changed
+    - denylist_result is defined and denylist_result.changed
+    - regex_result is defined and regex_result.changed
+
+- name: Get updated Pi-hole lists statistics via API
+  uri:
+    url: "http://localhost/api/lists"
+    method: GET  
+    return_content: yes
+  register: updated_lists
+  become: false
+
+- name: Display updated blocklist statistics
+  debug:
+    msg: |
+      Updated Pi-hole Lists Statistics:
+      =====================================
+      {% if updated_lists is defined and updated_lists.json is defined %}
+      Block Lists (Adlists): {{ (updated_lists.json.lists | selectattr('type', 'equalto', 'block') | list) | length }}
+      {% for list in (updated_lists.json.lists | selectattr('type', 'equalto', 'block') | list) %}
+      - {{ list.comment | default('No comment') }}: {{ list.number | default(0) }} domains ({{ 'Enabled' if list.enabled else 'Disabled' }})
+      {% endfor %}
+      
+      Allow Lists: {{ (updated_lists.json.lists | selectattr('type', 'equalto', 'allow') | list) | length }}
+      {% for list in (updated_lists.json.lists | selectattr('type', 'equalto', 'allow') | list) %}
+      - {{ list.address }}
+      {% endfor %}
+      
+      Total Blocked Domains: {{ (updated_lists.json.lists | selectattr('type', 'equalto', 'block') | map(attribute='number') | list | sum) }}
+      {% else %}
+      - API call was skipped or failed
+      - Statistics not available
+      {% endif %}
+      =====================================

@@ -1,0 +1,84 @@
+# Environment Configuration Files
+.env.yaml
+.env
+*.env
+
+# Ansible
+*.retry
+.vault_pass.txt
+host_vars/
+group_vars/*/vault.yml
+
+# SSH Keys
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+known_hosts
+
+# Logs
+*.log
+logs/
+ansible.log
+
+# Temporary Files
+*.tmp
+*.temp
+.tmp/
+.temp/
+
+# IDE and Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# Backup Files
+*.bak
+*.backup
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Documentation Build
+docs/_build/
+site/
