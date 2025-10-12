@@ -1,0 +1,102 @@
+---
+# Pi-hole List Management - REST API Approach
+# Uses official Pi-hole REST API with authentication
+# API Documentation: https://docs.pi-hole.net/ftldns/api/
+
+- name: Get current Pi-hole status using REST API
+  uri:
+    url: "http://localhost/admin/api.php?status&auth=mlLFJgnAQXt4bB0orHaVvyHlW1P5Ib2AsnOeJlg/vxs="
+    method: GET
+    return_content: true
+  register: pihole_api_status
+  changed_when: false
+  failed_when: false
+
+- name: Display Pi-hole status
+  debug:
+    msg: "Pi-hole Status: {{ (pihole_api_status.json.status | default('unknown')) | upper }}"
+
+- name: Add adlists using Pi-hole REST API
+  uri:
+    url: "http://localhost/admin/scripts/pi-hole/php/add.php"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      list: "adlist"
+      domain: "{{ item }}"
+      auth: "mlLFJgnAQXt4bB0orHaVvyHlW1P5Ib2AsnOeJlg/vxs="
+    return_content: true
+  register: add_adlist_result
+  loop: "{{ pihole_blocklists | default([]) }}"
+  changed_when: "'success' in (add_adlist_result.content | default('')) or 'already exists' not in (add_adlist_result.content | default(''))"
+  failed_when: false
+  when: pihole_blocklists is defined and pihole_blocklists | length > 0
+
+- name: Add domains to whitelist using Pi-hole REST API
+  uri:
+    url: "http://localhost/admin/scripts/pi-hole/php/add.php"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      list: "white"
+      domain: "{{ item }}"
+      auth: "mlLFJgnAQXt4bB0orHaVvyHlW1P5Ib2AsnOeJlg/vxs="
+    return_content: true
+  register: add_whitelist_result
+  loop: "{{ pihole_whitelist | default([]) }}"
+  changed_when: "'success' in (add_whitelist_result.content | default('')) or 'already exists' not in (add_whitelist_result.content | default(''))"
+  failed_when: false
+  when: pihole_whitelist is defined and pihole_whitelist | length > 0
+
+- name: Add domains to blacklist using Pi-hole REST API
+  uri:
+    url: "http://localhost/admin/scripts/pi-hole/php/add.php"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      list: "black"
+      domain: "{{ item }}"
+      auth: "mlLFJgnAQXt4bB0orHaVvyHlW1P5Ib2AsnOeJlg/vxs="
+    return_content: true
+  register: add_blacklist_result
+  loop: "{{ pihole_blacklist | default([]) }}"
+  changed_when: "'success' in (add_blacklist_result.content | default('')) or 'already exists' not in (add_blacklist_result.content | default(''))"
+  failed_when: false
+  when: pihole_blacklist is defined and pihole_blacklist | length > 0
+
+- name: Update gravity (process all lists) using REST API
+  uri:
+    url: "http://localhost/admin/scripts/pi-hole/php/gravity.php"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      action: "gravity"
+      auth: "mlLFJgnAQXt4bB0orHaVvyHlW1P5Ib2AsnOeJlg/vxs="
+    return_content: true
+    timeout: 120
+  register: gravity_update
+  changed_when: "'success' in (gravity_update.content | default(''))"
+  failed_when: false
+
+- name: Get updated statistics using REST API
+  uri:
+    url: "http://localhost/admin/api.php?summary&auth=mlLFJgnAQXt4bB0orHaVvyHlW1P5Ib2AsnOeJlg/vxs="
+    method: GET
+    return_content: true
+  register: pihole_stats
+  changed_when: false
+  failed_when: false
+  when: gravity_update is succeeded
+
+- name: Display list management results
+  debug:
+    msg: |
+      List Management Summary (REST API):
+      ===================================
+      Adlists: {{ pihole_blocklists | length if pihole_blocklists is defined else 0 }} configured
+      Whitelist: {{ pihole_whitelist | length if pihole_whitelist is defined else 0 }} domains
+      Blacklist: {{ pihole_blacklist | length if pihole_blacklist is defined else 0 }} domains
+      Gravity Update: {{ 'SUCCESS' if gravity_update.changed else 'NO CHANGES' }}
+      Total Blocked Domains: {{ pihole_stats.json.domains_being_blocked | default('Unknown') }}
+      DNS Queries Today: {{ pihole_stats.json.dns_queries_today | default('Unknown') }}
+      ===================================

@@ -1,27 +1,28 @@
 ---
-# Pi-hole Role - Main Tasks
-# This file orchestrates the Pi-hole installation and configuration
+# Pi-hole Role - Clean Configuration Approach
+# Uses pure FTL commands and official Pi-hole API only
 
 - name: Include installation tasks
   include_tasks: install.yml
   tags: ['install']
 
-- name: Include configuration tasks  
+- name: Include basic configuration tasks  
   include_tasks: configure.yml
   tags: ['configure']
 
-- name: Include blocklist management tasks
-  include_tasks: blocklists.yml
-  tags: ['blocklists']
+- name: Include clean network configuration (pure FTL)
+  include_tasks: network_clean.yml
+  tags: ['network', 'dhcp', 'dns']
+  when: pihole_dhcp_enabled is defined or pihole_custom_dns is defined
 
-- name: Include network and DNS configuration tasks
-  include_tasks: network.yml
-  tags: ['network', 'dns']
+- name: Include REST API list management
+  include_tasks: lists_api.yml
+  tags: ['lists', 'blocklists', 'api']
 
 - name: Include service management tasks
   include_tasks: services.yml
   tags: ['services']
 
-- name: Include API integration testing tasks
+- name: Include functionality testing tasks
   include_tasks: testing.yml
   tags: ['testing', 'verify']

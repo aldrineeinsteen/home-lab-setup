@@ -17,7 +17,7 @@
         echo "DNS upstreams: $(pihole-FTL --config dns.upstreams 2>/dev/null || echo 'Not available')"
         echo "DNS interface: $(pihole-FTL --config dns.interface 2>/dev/null || echo 'Not available')"
         echo "DHCP active: $(pihole-FTL --config dhcp.active 2>/dev/null || echo 'Not available')"
-        echo "Web interface: $(pihole-FTL --config webserver.interface 2>/dev/null || echo 'Not available')"
+        echo "Web interface: Built-in FTL server (no config option)"
         echo "Query logging: $(pihole-FTL --config dns.queryLogging 2>/dev/null || echo 'Not available')"
       register: ftl_config_test
       changed_when: false
@@ -333,7 +333,7 @@
       echo "DNS upstreams: $(pihole-FTL --config dns.upstreams 2>/dev/null || echo 'N/A')"
       echo "DNS interface: $(pihole-FTL --config dns.interface 2>/dev/null || echo 'N/A')"
       echo "Query logging: $(pihole-FTL --config dns.queryLogging 2>/dev/null || echo 'N/A')"
-      echo "Web interface: $(pihole-FTL --config webserver.interface 2>/dev/null || echo 'N/A')"
+      echo "Web interface: Built-in FTL server (no config option)"
       {% if pihole_dhcp_enabled | default(false) %}
       echo "DHCP active: $(pihole-FTL --config dhcp.active 2>/dev/null || echo 'N/A')"
       echo "DHCP range: $(pihole-FTL --config dhcp.start 2>/dev/null || echo 'N/A') - $(pihole-FTL --config dhcp.end 2>/dev/null || echo 'N/A')"

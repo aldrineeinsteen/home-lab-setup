@@ -47,9 +47,19 @@ pihole-FTL --config dhcp.ipv6 false
 pihole-FTL --config misc.privacylevel 0
 ```
 
-### Custom DNSmasq Configuration
+### Conditional Forwarding (Modern Alternative to Custom DNSmasq)
 ```bash
-# Enable custom dnsmasq configuration loading
+# Enable conditional forwarding for local domains
+pihole-FTL --config dns.conditionalForwarding true
+pihole-FTL --config dns.conditionalForwarding.domain lan
+pihole-FTL --config dns.conditionalForwarding.router 192.168.1.1
+
+# Note: This replaces most need for custom dnsmasq configuration
+```
+
+### Custom DNSmasq Configuration (Legacy - Use Sparingly)
+```bash
+# Enable custom dnsmasq configuration loading (only if needed)
 pihole-FTL --config misc.etc_dnsmasq_d true
 ```
 

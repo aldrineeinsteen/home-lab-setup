@@ -80,3 +80,317 @@ pihole:
     blacklist:
         - "ads.example.com"
     interface: "eth0"
+
+using httpie:
+aldrine@Aldrines-Laptop ~ % http --verify=no POST https://192.168.100.99:443/api/auth \
+  accept:application/json \
+  content-type:application/json \
+  password=1uJ0rPRk
+HTTP/1.1 200 OK
+Access-Control-Allow-Headers: *
+Access-Control-Allow-Methods: *
+Cache-Control: no-cache, no-store, must-revalidate, private, max-age=0
+Connection: keep-alive
+Content-Length: 174
+Content-Security-Policy: default-src 'self' 'unsafe-inline';
+Content-Type: application/json; charset=utf-8
+Date: Sun, 12 Oct 2025 13:01:36 GMT
+Expires: 0
+Pragma: no-cache
+Referrer-Policy: strict-origin-when-cross-origin
+Set-Cookie: sid=jWWzjV7toKh6sKLX02YarA=; SameSite=Lax; Path=/; Max-Age=1800; HttpOnly
+X-Content-Type-Options: nosniff
+X-DNS-Prefetch-Control: off
+X-Frame-Options: DENY
+X-XSS-Protection: 0
+
+{
+    "session": {
+        "csrf": "mwqi7dkJTrmorAnU9VglMg=",
+        "message": "password correct",
+        "sid": "jWWzjV7toKh6sKLX02YarA=",
+        "totp": false,
+        "valid": true,
+        "validity": 1800
+    },
+    "took": 0.300417423248291
+}
+
+
+aldrine@Aldrines-Laptop ~ % http --verify=no GET https://192.168.100.99:443/api/lists \
+  Cookie:"SID=jWWzjV7toKh6sKLX02YarA=" \
+  accept:application/json
+HTTP/1.1 401 Unauthorized
+Cache-Control: no-cache, no-store, must-revalidate, private, max-age=0
+Connection: keep-alive
+Content-Length: 97
+Content-Security-Policy: default-src 'self' 'unsafe-inline';
+Content-Type: application/json; charset=utf-8
+Date: Sun, 12 Oct 2025 13:01:55 GMT
+Expires: 0
+Pragma: no-cache
+Referrer-Policy: strict-origin-when-cross-origin
+X-Content-Type-Options: nosniff
+X-DNS-Prefetch-Control: off
+X-Frame-Options: DENY
+X-XSS-Protection: 0
+
+{
+    "error": {
+        "hint": null,
+        "key": "unauthorized",
+        "message": "Unauthorized"
+    },
+    "took": 0.000102996826171875
+}
+
+
+aldrine@Aldrines-Laptop ~ % http --verify=no GET https://192.168.100.99:443/api/lists \
+  Cookie:"SID=jWWzjV7toKh6sKLX02YarA=" \
+  X-CSRF-Token:mwqi7dkJTrmorAnU9VglMg= \
+  accept:application/json
+HTTP/1.1 200 OK
+Cache-Control: no-cache, no-store, must-revalidate, private, max-age=0
+Connection: keep-alive
+Content-Length: 3669
+Content-Security-Policy: default-src 'self' 'unsafe-inline';
+Content-Type: application/json; charset=utf-8
+Date: Sun, 12 Oct 2025 13:02:22 GMT
+Expires: 0
+Pragma: no-cache
+Referrer-Policy: strict-origin-when-cross-origin
+Set-Cookie: sid=jWWzjV7toKh6sKLX02YarA=; SameSite=Lax; Path=/; Max-Age=1800; HttpOnly
+X-Content-Type-Options: nosniff
+X-DNS-Prefetch-Control: off
+X-Frame-Options: DENY
+X-XSS-Protection: 0
+
+{
+    "lists": [
+        {
+            "abp_entries": 0,
+            "address": "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
+            "comment": "Migrated from /etc/pihole/adlists.list",
+            "date_added": 1760259986,
+            "date_modified": 1760259986,
+            "date_updated": 1760259987,
+            "enabled": true,
+            "groups": [
+                0
+            ],
+            "id": 1,
+            "invalid_domains": 1,
+            "number": 79876,
+            "status": 2,
+            "type": "block"
+        },
+        {
+            "abp_entries": 0,
+            "address": "https://raw.githubusercontent.com/mitchellkrogza/Badd-Boyz-Hosts/master/hosts",
+            "comment": "Added via Ansible automation",
+            "date_added": 1760272403,
+            "date_modified": 1760272403,
+            "date_updated": 1760272902,
+            "enabled": true,
+            "groups": [
+                0
+            ],
+            "id": 2,
+            "invalid_domains": 0,
+            "number": 1384,
+            "status": 1,
+            "type": "block"
+        },
+        {
+            "abp_entries": 0,
+            "address": "https://someonewhocares.org/hosts/zero/hosts",
+            "comment": "Added via Ansible automation",
+            "date_added": 1760272404,
+            "date_modified": 1760272404,
+            "date_updated": 1760272902,
+            "enabled": true,
+            "groups": [
+                0
+            ],
+            "id": 3,
+            "invalid_domains": 2,
+            "number": 11807,
+            "status": 1,
+            "type": "block"
+        },
+        {
+            "abp_entries": 266,
+            "address": "https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/BaseFilter/sections/adservers.txt",
+            "comment": "Added via Ansible automation",
+            "date_added": 1760272406,
+            "date_modified": 1760272406,
+            "date_updated": 1760272903,
+            "enabled": true,
+            "groups": [
+                0
+            ],
+            "id": 4,
+            "invalid_domains": 550,
+            "number": 266,
+            "status": 1,
+            "type": "block"
+        },
+        {
+            "abp_entries": 0,
+            "address": "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=hosts&showintro=0&mimetype=plaintext",
+            "comment": "Added via Ansible automation",
+            "date_added": 1760272408,
+            "date_modified": 1760272408,
+            "date_updated": 1760272903,
+            "enabled": true,
+            "groups": [
+                0
+            ],
+            "id": 5,
+            "invalid_domains": 0,
+            "number": 3438,
+            "status": 1,
+            "type": "block"
+        },
+        {
+            "abp_entries": 0,
+            "address": "example.com",
+            "comment": "Whitelisted via Ansible automation",
+            "date_added": 1760272409,
+            "date_modified": 1760272409,
+            "date_updated": 0,
+            "enabled": true,
+            "groups": [
+                0
+            ],
+            "id": 6,
+            "invalid_domains": 0,
+            "number": 0,
+            "status": 4,
+            "type": "allow"
+        },
+        {
+            "abp_entries": 0,
+            "address": "github.com",
+            "comment": "Whitelisted via Ansible automation",
+            "date_added": 1760272411,
+            "date_modified": 1760272411,
+            "date_updated": 0,
+            "enabled": true,
+            "groups": [
+                0
+            ],
+            "id": 7,
+            "invalid_domains": 0,
+            "number": 0,
+            "status": 4,
+            "type": "allow"
+        },
+        {
+            "abp_entries": 0,
+            "address": "microsoft.com",
+            "comment": "Whitelisted via Ansible automation",
+            "date_added": 1760272412,
+            "date_modified": 1760272412,
+            "date_updated": 0,
+            "enabled": true,
+            "groups": [
+                0
+            ],
+            "id": 8,
+            "invalid_domains": 0,
+            "number": 0,
+            "status": 4,
+            "type": "allow"
+        },
+        {
+            "abp_entries": 0,
+            "address": "apple.com",
+            "comment": "Whitelisted via Ansible automation",
+            "date_added": 1760272414,
+            "date_modified": 1760272414,
+            "date_updated": 0,
+            "enabled": true,
+            "groups": [
+                0
+            ],
+            "id": 9,
+            "invalid_domains": 0,
+            "number": 0,
+            "status": 4,
+            "type": "allow"
+        },
+        {
+            "abp_entries": 0,
+            "address": "google.com",
+            "comment": "Whitelisted via Ansible automation",
+            "date_added": 1760272415,
+            "date_modified": 1760272415,
+            "date_updated": 0,
+            "enabled": true,
+            "groups": [
+                0
+            ],
+            "id": 10,
+            "invalid_domains": 0,
+            "number": 0,
+            "status": 4,
+            "type": "allow"
+        },
+        {
+            "abp_entries": 0,
+            "address": "ads.example.com",
+            "comment": "Blacklisted via Ansible automation",
+            "date_added": 1760272417,
+            "date_modified": 1760272417,
+            "date_updated": 0,
+            "enabled": true,
+            "groups": [
+                0
+            ],
+            "id": 11,
+            "invalid_domains": 0,
+            "number": 0,
+            "status": 4,
+            "type": "block"
+        },
+        {
+            "abp_entries": 0,
+            "address": "tracker.example.com",
+            "comment": "Blacklisted via Ansible automation",
+            "date_added": 1760272419,
+            "date_modified": 1760272419,
+            "date_updated": 0,
+            "enabled": true,
+            "groups": [
+                0
+            ],
+            "id": 12,
+            "invalid_domains": 0,
+            "number": 0,
+            "status": 4,
+            "type": "block"
+        },
+        {
+            "abp_entries": 0,
+            "address": "analytics.badsite.com",
+            "comment": "Blacklisted via Ansible automation",
+            "date_added": 1760272421,
+            "date_modified": 1760272421,
+            "date_updated": 0,
+            "enabled": true,
+            "groups": [
+                0
+            ],
+            "id": 13,
+            "invalid_domains": 0,
+            "number": 0,
+            "status": 4,
+            "type": "block"
+        }
+    ],
+    "took": 0.000586986541748047
+}
+
+
+aldrine@Aldrines-Laptop ~ % 

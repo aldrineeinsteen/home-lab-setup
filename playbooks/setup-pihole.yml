@@ -1,0 +1,90 @@
+---
+- name: Setup Pi-hole and Configure DHCP
+  hosts: pihole_server
+  become: yes
+  vars_files:
+    - ../.env.yaml
+
+  tasks:
+    - name: Install Pi-hole
+      ansible.builtin.shell: |
+        curl -sSL https://install.pi-hole.net | bash
+      args:
+        creates: /etc/pihole/setupVars.conf
+
+    - name: Install httpie
+      ansible.builtin.package:
+        name: httpie
+        state: present
+
+    - name: Authenticate with Pi-hole API
+      ansible.builtin.shell: |
+        http --ignore-stdin --verify=no POST https://{{ pihole.ssh_host }}/api/auth \
+          accept:application/json \
+          content-type:application/json \
+          password={{ pihole.admin_password }}
+      register: auth_response
+
+    - name: Extract session ID and CSRF token
+      ansible.builtin.set_fact:
+        session_id: "{{ auth_response.stdout | from_json | json_query('session.sid') }}"
+        csrf_token: "{{ auth_response.stdout | from_json | json_query('session.csrf') }}"
+
+    - name: Debug session_id and csrf_token before DHCP API call
+      ansible.builtin.debug:
+        msg:
+          - "Session ID: {{ session_id }}"
+          - "CSRF Token: {{ csrf_token }}"
+
+    - name: Log raw authentication response
+      ansible.builtin.debug:
+        var: auth_response.stdout
+
+    - name: Log parsed session_id and csrf_token
+      ansible.builtin.debug:
+        msg:
+          - "Parsed Session ID: {{ auth_response.stdout | from_json | json_query('session.sid') }}"
+          - "Parsed CSRF Token: {{ auth_response.stdout | from_json | json_query('session.csrf') }}"
+
+    - name: Configure DHCP via API
+      ansible.builtin.shell: |
+        http --ignore-stdin --verify=no PATCH https://{{ pihole.ssh_host }}/api/config \
+          Cookie:"SID={{ session_id }}" \
+          X-CSRF-Token:{{ csrf_token }} \
+          accept:application/json \
+          config:='{
+            "dhcp": {
+              "active": true,
+              "start": "{{ pihole.dhcp.start_ip }}",
+              "end": "{{ pihole.dhcp.end_ip }}",
+              "router": "{{ pihole.dhcp.router_ip }}",
+              "leaseTime": "{{ pihole.dhcp.lease_time }}"
+            }
+          }'
+      register: dhcp_patch_output
+      when: session_id is defined and csrf_token is defined
+
+    - name: Display DHCP configuration output
+      ansible.builtin.debug:
+        var: dhcp_patch_output.stdout | from_json
+
+    - name: Debug session_id and csrf_token before blocklist API call
+      ansible.builtin.debug:
+        msg:
+          - "Session ID: {{ session_id }}"
+          - "CSRF Token: {{ csrf_token }}"
+
+    - name: Add blocklists via API
+      ansible.builtin.shell: |
+        http --ignore-stdin --verify=no POST https://{{ pihole.ssh_host }}/api/lists \
+          accept:application/json \
+          content-type:application/json \
+          Cookie:"SID={{ session_id }}" \
+          X-CSRF-Token:{{ csrf_token }} \
+          address="{{ item }}" \
+          type=block \
+          comment="Added via Ansible automation" \
+          groups:='[0]' \
+          enabled:=true
+      loop: "{{ pihole.blocklists }}"
+      when: session_id is defined and csrf_token is defined

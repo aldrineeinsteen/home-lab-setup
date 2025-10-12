@@ -23,7 +23,7 @@
   when: 
     - pihole_version_check.stdout is defined
     - pihole_version_check.stdout != ""
-    - pihole_version_check.stdout | regex_search('^v?[0-9]+')
+    - pihole_version_check.stdout | regex_search('^v?[0-9]+') is not none
   failed_when: false
 
 - name: Set Pi-hole v6 fallback (assume v5 if version detection fails)

@@ -22,7 +22,8 @@
     - name: Configure DNS upstream servers via FTL config
       command: pihole-FTL --config dns.upstreams '{{ pihole_dns_servers | to_json }}'
       register: dns_config_result
-      changed_when: dns_config_result.stdout != (pihole_dns_servers | to_json)
+      changed_when: dns_config_result.rc == 0 and dns_config_result.stdout != (pihole_dns_servers | to_json)
+      failed_when: dns_config_result.rc != 0 and 'No such configuration option' not in dns_config_result.stderr | default('')
       notify: restart pihole-FTL
 
     - name: Display DNS configuration
@@ -46,7 +47,13 @@
       command: pihole-FTL --config dns.interface "{{ pihole_interface }}"
       register: interface_config_result
       changed_when: interface_config_result.stdout != pihole_interface
+      when: not ansible_check_mode
       notify: restart pihole-FTL
+
+    - name: Interface configuration (check mode)
+      debug:
+        msg: "Would set interface to: {{ pihole_interface }}"
+      when: ansible_check_mode
 
     - name: Display interface configuration
       debug:

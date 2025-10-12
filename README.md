@@ -1,43 +1,39 @@
-# Home Lab Setup with Ansible
-
-🚀 Automated Pi-hole DNS ad-blocking deployment for your home lab using Ansible. Get up and running in minutes!
-
-## Quick Start
-
-### 1. Prerequisites
-- **Control Machine**: WSL2 Ubuntu 22.04 (Windows) or Linux/macOS with Ansible 2.9+
-- **Target Machine**: Ubuntu 22.04+ with SSH access and static IP configured
-
-### 2. Install Ansible (WSL2/Ubuntu)
-```bash
-sudo apt update && sudo apt install ansible python3-pip
-pip3 install ansible
-```
-
-### 3. Setup Project
-```bash
-# Clone repository
 git clone https://github.com/aldrineeinsteen/home-lab-setup.git
-cd home-lab-setup
+# Minimal Pi-hole Setup
 
-# Install dependencies
-ansible-galaxy install -r requirements.yml
+## Prerequisites
+- Remote server (Ubuntu 22.04+ recommended)
+- SSH access
+- Ansible installed locally
+- Configuration in `.env.yaml`
 
-# Configure your environment
-cp .env.template.yaml .env.yaml
-nano .env.yaml  # Edit with your settings
-```
+## Setup Steps
+1. Edit `.env.yaml` with your Pi-hole server details and admin password.
+2. Edit `inventory/hosts.yml` with your remote host info.
+3. Run the playbook:
+  ```sh
+  ansible-playbook -i inventory/hosts.yml playbooks/pihole-minimal.yml --extra-vars "@.env.yaml"
+  ```
 
-### 4. Configure `.env.yaml`
-```yaml
-pihole:
-  # Connection settings
-  ssh_user: "pi"
-  ssh_host: "192.168.1.100"          # Your Pi-hole machine IP
-  ssh_password: "your_password"      # Or use SSH keys (recommended)
-  
-  # Pi-hole settings
-  admin_password: "secure_password"
+## API Usage Example (with httpie)
+1. Install httpie:
+  ```sh
+  brew install httpie
+  ```
+2. Authenticate:
+  ```sh
+  http --verify=no POST https://<PIHOLE_IP>:443/api/auth \
+    accept:application/json \
+    content-type:application/json \
+    password=<admin_password>
+  ```
+3. Use the API (pass SID and CSRF from auth response):
+  ```sh
+  http --verify=no GET https://<PIHOLE_IP>:443/api/lists \
+    Cookie:"SID=<sid>" \
+    X-CSRF-Token:<csrf> \
+    accept:application/json
+  ```
   machine_ip: "192.168.1.100"        # Static IP
   interface: "eth0"                  # Network interface
   
@@ -68,13 +64,19 @@ export ANSIBLE_CONFIG_IGNORE_WORLD_WRITABLE=True
 ansible pihole_servers -i inventory/hosts.yml --extra-vars "@.env.yaml" -m ping
 ```
 
-### 6. Deploy Pi-hole
+### 5. Deploy Pi-hole
 ```bash
-# For WSL users, also set the roles path (if not using ./wsl-setup.sh)
-export ANSIBLE_ROLES_PATH=./roles
+# Deploy Pi-hole to your target machine (recommended)
+./deploy-modern-pihole.sh
 
-# Deploy Pi-hole (complete installation including blocklists)
+# Or run Ansible directly
 ansible-playbook -i inventory/hosts.yml playbooks/pihole.yml --extra-vars "@.env.yaml"
+
+# Validate configuration quality
+./scripts/validate-pihole-config.sh
+
+# Test modern API functionality
+./scripts/test-pihole-modern.sh
 ```
 
 ### 7. Access Pi-hole

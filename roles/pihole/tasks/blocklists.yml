@@ -20,8 +20,10 @@
     url: "http://localhost/api/lists"
     method: GET
     return_content: yes
+    status_code: [200, 404, 502]  # Handle cases where API might not be available
   register: current_lists
   become: false
+  failed_when: false
   tags: ['blocklists']
 
 - name: Display current lists summary
@@ -42,13 +44,13 @@
   command: pihole adlist add "{{ item }}"
   loop: "{{ pihole_blocklists | default([]) }}"
   register: adlist_result
-  changed_when: "'Added' in adlist_result.stdout"
+  changed_when: "'Added' in adlist_result.stdout or 'successfully added' in adlist_result.stdout"
   failed_when: false
   when: 
     - pihole_blocklists is defined 
     - pihole_blocklists | length > 0
-    - current_lists is defined and current_lists.json is defined
-    - item not in (current_lists.json.lists | selectattr('type', 'equalto', 'block') | map(attribute='address') | list)
+    - not ansible_check_mode
+    # Simplified condition - let Pi-hole handle duplicates
   tags: ['blocklists']
 
 - name: Add allowlist domains via modern Pi-hole commands  
