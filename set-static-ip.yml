@@ -1,0 +1,167 @@
+---
+# Configure Static IP for Pi-hole Server
+# This playbook sets a static IP address using NetworkManager
+# Ensures Pi-hole has a reliable, permanent IP address
+
+- name: Configure Static IP for Pi-hole
+  hosts: pihole
+  become: true
+  gather_facts: true
+  
+  vars:
+    static_ip: "{{ pihole.machine_ip }}"
+    static_netmask: "24"  # /24 = 255.255.255.0
+    static_gateway: "{{ pihole.dhcp.router_ip }}"
+    static_dns_servers: "{{ pihole.dns_servers | join(',') }}"
+    network_interface: "{{ pihole.interface }}"
+  
+  tasks:
+    - name: Display current network configuration
+      debug:
+        msg: |
+          Current Network Configuration:
+          - Interface: {{ network_interface }}
+          - Target Static IP: {{ static_ip }}/{{ static_netmask }}
+          - Gateway: {{ static_gateway }}
+          - DNS Servers: {{ static_dns_servers }}
+
+    - name: Check if NetworkManager is available
+      command: which nmcli
+      register: nmcli_check
+      changed_when: false
+      failed_when: false
+
+    - name: Configure static IP using NetworkManager
+      block:
+        - name: Get current connection name
+          shell: |
+            nmcli -t -f NAME,DEVICE connection show --active | grep "{{ network_interface }}" | cut -d: -f1
+          register: connection_name
+          changed_when: false
+        
+        - name: Display connection name
+          debug:
+            msg: "Active connection: {{ connection_name.stdout }}"
+        
+        - name: Set static IP address
+          command: >
+            nmcli connection modify "{{ connection_name.stdout }}"
+            ipv4.addresses "{{ static_ip }}/{{ static_netmask }}"
+          register: set_ip
+          changed_when: true
+        
+        - name: Set gateway
+          command: >
+            nmcli connection modify "{{ connection_name.stdout }}"
+            ipv4.gateway "{{ static_gateway }}"
+          register: set_gateway
+          changed_when: true
+        
+        - name: Set DNS servers
+          command: >
+            nmcli connection modify "{{ connection_name.stdout }}"
+            ipv4.dns "{{ static_dns_servers }}"
+          register: set_dns
+          changed_when: true
+        
+        - name: Set connection to manual (static) mode
+          command: >
+            nmcli connection modify "{{ connection_name.stdout }}"
+            ipv4.method manual
+          register: set_manual
+          changed_when: true
+        
+        - name: Bring connection down
+          command: nmcli connection down "{{ connection_name.stdout }}"
+          register: conn_down
+          changed_when: true
+          failed_when: false
+        
+        - name: Bring connection up with new settings
+          command: nmcli connection up "{{ connection_name.stdout }}"
+          register: conn_up
+          changed_when: true
+        
+        - name: Wait for network to stabilize
+          wait_for:
+            timeout: 5
+          delegate_to: localhost
+        
+        - name: Verify new IP configuration
+          shell: ip addr show {{ network_interface }} | grep 'inet '
+          register: new_ip_config
+          changed_when: false
+        
+        - name: Display new network configuration
+          debug:
+            msg: |
+              Network Configuration Updated:
+              {{ new_ip_config.stdout }}
+              
+              Static IP Configuration Applied:
+              - IP Address: {{ static_ip }}/{{ static_netmask }}
+              - Gateway: {{ static_gateway }}
+              - DNS: {{ static_dns_servers }}
+              - Method: Manual (Static)
+      
+      when: nmcli_check.rc == 0
+
+    - name: Verify connectivity after IP change
+      block:
+        - name: Test connectivity to gateway
+          command: ping -c 2 {{ static_gateway }}
+          register: ping_gateway
+          changed_when: false
+          failed_when: false
+        
+        - name: Test DNS resolution
+          command: dig @{{ pihole.dns_servers[0] }} google.com +short
+          register: dns_test
+          changed_when: false
+          failed_when: false
+        
+        - name: Display connectivity test results
+          debug:
+            msg: |
+              Connectivity Tests:
+              - Gateway ({{ static_gateway }}): {{ 'OK' if ping_gateway.rc == 0 else 'FAILED' }}
+              - DNS Resolution: {{ 'OK' if dns_test.rc == 0 else 'FAILED' }}
+
+    - name: Update Pi-hole configuration with static IP
+      block:
+        - name: Ensure Pi-hole knows about the static IP
+          command: pihole reloaddns
+          changed_when: false
+        
+        - name: Display Pi-hole status
+          command: pihole status
+          register: pihole_status
+          changed_when: false
+        
+        - name: Show Pi-hole status
+          debug:
+            msg: "{{ pihole_status.stdout }}"
+
+    - name: Final verification and summary
+      debug:
+        msg: |
+          ========================================
+          Static IP Configuration Complete!
+          ========================================
+          
+          Network Settings:
+          - Interface: {{ network_interface }}
+          - Static IP: {{ static_ip }}/{{ static_netmask }}
+          - Gateway: {{ static_gateway }}
+          - DNS Servers: {{ static_dns_servers }}
+          - Method: Manual (Static)
+          
+          Next Steps:
+          1. Verify Pi-hole web interface: http://{{ static_ip }}/admin/
+          2. Update your router's DHCP settings to exclude {{ static_ip }}
+          3. Configure devices to use {{ static_ip }} as DNS server
+          
+          Note: The IP address is now STATIC and will persist across reboots.
+          ========================================
+
+# Made with Bob

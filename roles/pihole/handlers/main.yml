@@ -1,0 +1,29 @@
+---
+# Pi-hole Role Handlers
+# Handles service restarts and reloads
+
+- name: restart pihole-FTL
+  systemd:
+    name: pihole-FTL
+    state: restarted
+  listen: restart pihole-FTL
+
+- name: reload pihole-FTL
+  systemd:
+    name: pihole-FTL
+    state: reloaded
+  listen: reload pihole-FTL
+
+- name: restart dns
+  command: pihole restartdns
+  listen: restart dns
+
+- name: reload dns
+  command: pihole restartdns reload
+  listen: reload dns
+
+- name: update gravity
+  command: pihole updateGravity
+  listen: update gravity
+
+# Made with Bob

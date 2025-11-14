@@ -1,0 +1,76 @@
+---
+# Pi-hole Update Playbook
+# Updates Pi-hole core, FTL, and web interface to latest versions
+# Also updates gravity (blocklists)
+
+- name: Update Pi-hole
+  hosts: pihole
+  become: true
+  gather_facts: true
+  
+  tasks:
+    - name: Check current Pi-hole version
+      command: pihole version --current
+      register: current_version
+      changed_when: false
+      failed_when: false
+    
+    - name: Display current version
+      debug:
+        msg: |
+          Current Pi-hole Versions:
+          {{ current_version.stdout }}
+    
+    - name: Check for Pi-hole updates
+      command: pihole version --latest
+      register: latest_version
+      changed_when: false
+      failed_when: false
+    
+    - name: Display available updates
+      debug:
+        msg: |
+          Latest Available Versions:
+          {{ latest_version.stdout }}
+    
+    - name: Update Pi-hole core, FTL, and web interface
+      command: pihole -up
+      register: pihole_update
+      changed_when: "'update available' in pihole_update.stdout.lower() or 'updating' in pihole_update.stdout.lower()"
+      failed_when: false
+    
+    - name: Display update result
+      debug:
+        msg: |
+          Pi-hole Update Result:
+          {{ pihole_update.stdout }}
+    
+    - name: Update gravity (blocklists)
+      command: pihole updateGravity
+      register: gravity_update
+      changed_when: true
+    
+    - name: Display gravity update result
+      debug:
+        msg: |
+          Gravity Update Result:
+          {{ gravity_update.stdout_lines | last }}
+    
+    - name: Verify updated version
+      command: pihole version --current
+      register: updated_version
+      changed_when: false
+    
+    - name: Display final version
+      debug:
+        msg: |
+          Updated Pi-hole Versions:
+          {{ updated_version.stdout }}
+          
+          Update Summary:
+          - Pi-hole Core: {{ 'Updated' if pihole_update.changed else 'Already up to date' }}
+          - Gravity: Updated
+          
+          Note: Pi-hole service will restart automatically if updated.
+
+# Made with Bob

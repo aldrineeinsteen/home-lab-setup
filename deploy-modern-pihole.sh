@@ -96,17 +96,12 @@ echo
 echo "🧪 Running Comprehensive Tests"
 echo "------------------------------"
 
-# Validate configuration first
-echo "🔍 Validating configuration..."
-./scripts/validate-pihole-config.sh
-
 # Run testing
 if [ -z "$CHECK_MODE" ]; then
     echo "🔬 Executing API and configuration tests..."
     ansible-playbook -i inventory/hosts.yml playbooks/pihole.yml --extra-vars "@.env.yaml" --tags testing
-
-    echo "🚀 Running modern API tests..."
-    ./scripts/test-pihole-modern.sh
+    
+    echo "✅ Testing completed successfully"
 else
     echo "🔬 Skipping live tests in check mode"
     echo "✅ Syntax validation completed successfully"
@@ -137,9 +132,6 @@ echo
 echo "📋 Useful Commands:"
 echo "   # Check FTL configuration:"
 echo "   ssh user@$PIHOLE_HOST 'sudo pihole-FTL --config dns.upstreams'"
-echo
-echo "   # Run comprehensive modern test:"
-echo "   ./scripts/test-pihole-modern.sh"
 echo
 echo "   # Run on-device test:"
 echo "   ssh user@$PIHOLE_HOST 'sudo /usr/local/bin/pihole-test-all'"

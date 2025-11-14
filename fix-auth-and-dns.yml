@@ -1,0 +1,119 @@
+---
+# Fix Pi-hole Web Authentication and Local DNS
+# This playbook fixes two issues:
+# 1. Sets the web admin password for authentication
+# 2. Configures local DNS entries properly for Pi-hole v6
+
+- name: Fix Pi-hole Authentication and Local DNS
+  hosts: pihole
+  become: true
+  gather_facts: true
+  
+  vars:
+    pihole_admin_password: "{{ pihole.admin_password }}"
+    pihole_custom_dns: "{{ pihole.custom_dns | default([]) }}"
+  
+  tasks:
+    - name: Set Pi-hole web admin password
+      block:
+        - name: Set password using pihole command
+          shell: |
+            echo -e "{{ pihole_admin_password }}\n{{ pihole_admin_password }}" | pihole -a -p
+          register: password_result
+          changed_when: "'password updated' in password_result.stdout.lower() or 'new password set' in password_result.stdout.lower()"
+          no_log: false
+        
+        - name: Display password configuration result
+          debug:
+            msg: |
+              Web Password Configuration:
+              {{ password_result.stdout }}
+      
+      when: pihole_admin_password is defined and pihole_admin_password | length > 0
+
+    - name: Configure local DNS entries for Pi-hole v6
+      block:
+        - name: Create custom DNS entries in dnsmasq format
+          copy:
+            content: |
+              # Pi-hole Custom DNS Configuration
+              # Managed by Ansible - Do not edit manually
+              # Generated on {{ ansible_date_time.iso8601 }}
+              {% for dns_entry in pihole_custom_dns %}
+              address=/{{ dns_entry.domain }}/{{ dns_entry.ip }}
+              {% endfor %}
+            dest: /etc/dnsmasq.d/05-pihole-custom-dns.conf
+            owner: root
+            group: root
+            mode: '0644'
+          register: custom_dns_file
+          notify: restart pihole-FTL
+        
+        - name: Also add to /etc/hosts for local resolution
+          lineinfile:
+            path: /etc/hosts
+            line: "{{ item.ip }} {{ item.domain }}"
+            regexp: "^.*\\s{{ item.domain }}$"
+            backup: true
+          loop: "{{ pihole_custom_dns }}"
+          when: pihole_custom_dns | length > 0
+        
+        - name: Reload Pi-hole DNS to apply custom DNS
+          command: pihole restartdns
+          when: custom_dns_file.changed
+          changed_when: false
+        
+        - name: Display custom DNS configuration
+          debug:
+            msg: |
+              Custom DNS Entries Configured:
+              {% for dns_entry in pihole_custom_dns %}
+              - {{ dns_entry.domain }} -> {{ dns_entry.ip }}
+              {% endfor %}
+      
+      when: pihole_custom_dns is defined and pihole_custom_dns | length > 0
+
+    - name: Verify configurations
+      block:
+        - name: Check web interface authentication
+          uri:
+            url: "http://{{ ansible_host }}/admin/"
+            method: GET
+            status_code: [200, 401]
+            return_content: false
+          register: web_check
+          delegate_to: localhost
+          become: false
+        
+        - name: Test custom DNS resolution
+          command: dig @localhost {{ item.domain }} +short
+          loop: "{{ pihole_custom_dns }}"
+          register: dns_test_results
+          changed_when: false
+          failed_when: false
+          when: pihole_custom_dns | length > 0
+        
+        - name: Display verification results
+          debug:
+            msg: |
+              Verification Results:
+              
+              Web Interface:
+              - URL: http://{{ ansible_host }}/admin/
+              - Status: {{ 'Authentication Required (✓)' if web_check.status == 401 else 'No Auth (needs investigation)' if web_check.status == 200 else 'Unknown' }}
+              
+              {% if pihole_custom_dns | length > 0 %}
+              Custom DNS Resolution:
+              {% for result in dns_test_results.results %}
+              - {{ result.item.domain }}: {{ result.stdout if result.stdout else 'FAILED' }} (Expected: {{ result.item.ip }})
+              {% endfor %}
+              {% endif %}
+
+  handlers:
+    - name: restart pihole-FTL
+      systemd:
+        name: pihole-FTL
+        state: restarted
+        daemon_reload: true
+
+# Made with Bob

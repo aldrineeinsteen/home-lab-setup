@@ -1,0 +1,116 @@
+---
+# Complete Update Playbook
+# Updates both the OS and Pi-hole in one go
+# Recommended to run monthly or when security updates are available
+
+- name: Complete System and Pi-hole Update
+  hosts: pihole
+  become: true
+  gather_facts: true
+  
+  tasks:
+    - name: Display update start message
+      debug:
+        msg: |
+          ========================================
+          Starting Complete System Update
+          ========================================
+          Host: {{ ansible_host }}
+          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Time: {{ ansible_date_time.iso8601 }}
+          ========================================
+
+    # ===== STEP 1: UPDATE OPERATING SYSTEM =====
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+    
+    - name: Check for OS updates
+      shell: apt list --upgradable 2>/dev/null | grep -v "^Listing" | wc -l
+      register: os_updates_available
+      changed_when: false
+    
+    - name: Upgrade all OS packages
+      apt:
+        upgrade: full
+        autoremove: yes
+        autoclean: yes
+      register: os_upgrade
+      when: os_updates_available.stdout | int > 0
+    
+    - name: Display OS update result
+      debug:
+        msg: |
+          OS Update: {{ 'Updated ' + os_updates_available.stdout + ' packages' if os_upgrade.changed else 'Already up to date' }}
+
+    # ===== STEP 2: UPDATE PI-HOLE =====
+    - name: Check current Pi-hole version
+      command: pihole version --current
+      register: pihole_current
+      changed_when: false
+      failed_when: false
+    
+    - name: Update Pi-hole
+      command: pihole -up
+      register: pihole_update
+      changed_when: "'update available' in pihole_update.stdout.lower() or 'updating' in pihole_update.stdout.lower()"
+      failed_when: false
+    
+    - name: Display Pi-hole update result
+      debug:
+        msg: |
+          Pi-hole Update: {{ 'Updated' if pihole_update.changed else 'Already up to date' }}
+
+    # ===== STEP 3: UPDATE GRAVITY =====
+    - name: Update gravity (blocklists)
+      command: pihole updateGravity
+      register: gravity_update
+      changed_when: true
+    
+    - name: Display gravity update result
+      debug:
+        msg: "Gravity: Updated blocklists"
+
+    # ===== STEP 4: CHECK REBOOT REQUIREMENT =====
+    - name: Check if reboot is required
+      stat:
+        path: /var/run/reboot-required
+      register: reboot_required
+    
+    - name: Get final versions
+      shell: |
+        echo "OS: $(lsb_release -d | cut -f2)"
+        echo "Kernel: $(uname -r)"
+        pihole version --current
+      register: final_versions
+      changed_when: false
+    
+    # ===== FINAL SUMMARY =====
+    - name: Display complete update summary
+      debug:
+        msg: |
+          ========================================
+          Update Complete!
+          ========================================
+          
+          OS Updates:
+          - Packages: {{ 'Updated ' + os_updates_available.stdout if os_upgrade.changed else 'No updates' }}
+          - Status: {{ 'Success' if not os_upgrade.failed else 'Failed' }}
+          
+          Pi-hole Updates:
+          - Core/FTL/Web: {{ 'Updated' if pihole_update.changed else 'Already latest' }}
+          - Gravity: Updated
+          
+          Current Versions:
+          {{ final_versions.stdout }}
+          
+          Reboot Required: {{ 'YES ⚠️' if reboot_required.stat.exists else 'No' }}
+          
+          {% if reboot_required.stat.exists %}
+          ⚠️  REBOOT REQUIRED ⚠️
+          Run: ansible pihole -i inventory/hosts.yml --extra-vars "@.env.yaml" -m reboot -b
+          {% endif %}
+          ========================================
+
+# Made with Bob

@@ -26,7 +26,14 @@
 - name: Set session variables
   set_fact:
     pihole_session_id: "{{ pihole_auth.json.session.sid }}"
-    pihole_csrf_token: "{{ pihole_auth.cookies.get('CSRF_TOKEN', '') }}"
+    pihole_csrf_token: "{{ pihole_auth.json.session.csrf }}"
+  when: pihole_auth.json.session.valid
+
+- name: Debug session info
+  debug:
+    msg: |
+      Session ID: {{ pihole_session_id }}
+      CSRF Token: {{ pihole_csrf_token }}
   when: pihole_auth.json.session.valid
 
 - name: Get existing adlists first
@@ -35,25 +42,26 @@
     method: GET
     headers:
       accept: "application/json"
-      cookie: "sid={{ pihole_session_id }}; CSRF_TOKEN={{ pihole_csrf_token }}"
+      Cookie: "sid={{ pihole_session_id }}"
+      X-FTL-SID: "{{ pihole_session_id }}"
     return_content: true
   register: existing_adlists
   changed_when: false
   failed_when: false
   when: pihole_auth.json.session.valid
 
-- name: Add adlists using FTL API v6+ (POST /api/lists) - only if not exists
+- name: Add adlists using FTL API v6+ (POST /api/lists?type=block) - only if not exists
   uri:
-    url: "http://localhost/api/lists"
+    url: "http://localhost/api/lists?type=block"
     method: POST
     headers:
       accept: "application/json"
       content-type: "application/json"
-      cookie: "sid={{ pihole_session_id }}; CSRF_TOKEN={{ pihole_csrf_token }}"
+      Cookie: "sid={{ pihole_session_id }}"
+      X-FTL-SID: "{{ pihole_session_id }}"
     body_format: json
     body:
       address: "{{ item }}"
-      type: "block"
       comment: "Added via Ansible automation"
       groups: [0]
       enabled: true
@@ -63,94 +71,102 @@
   loop: "{{ pihole_blocklists | default([]) }}"
   changed_when: add_adlist_result.status == 201
   failed_when: add_adlist_result.status not in [200, 201, 409]
-  when: 
+  when:
     - pihole_auth.json.session.valid
-    - pihole_blocklists is defined 
+    - pihole_blocklists is defined
     - pihole_blocklists | length > 0
     - existing_adlists.json is defined
     - item not in (existing_adlists.json.lists | default([]) | selectattr('address', 'defined') | map(attribute='address') | list)
 
-- name: Get existing whitelist first
-  uri:
-    url: "http://localhost/api/lists?type=allow"
-    method: GET
-    headers:
-      accept: "application/json"
-      cookie: "sid={{ pihole_session_id }}; CSRF_TOKEN={{ pihole_csrf_token }}"
-    return_content: true
-  register: existing_whitelist
+# ===== WHITELIST MANAGEMENT (Declarative - Sync with .env.yaml) =====
+- name: Get current whitelist domains
+  shell: pihole allow -l | grep '^\s*-\s*"' | sed 's/^\s*-\s*"\(.*\)"/\1/' || true
+  register: current_whitelist
   changed_when: false
   failed_when: false
-  when: pihole_auth.json.session.valid
 
-- name: Add domains to whitelist using FTL API v6+ (POST /api/lists) - only if not exists
-  uri:
-    url: "http://localhost/api/lists"
-    method: POST
-    headers:
-      accept: "application/json"
-      content-type: "application/json"
-      cookie: "sid={{ pihole_session_id }}; CSRF_TOKEN={{ pihole_csrf_token }}"
-    body_format: json
-    body:
-      address: "{{ item }}"
-      type: "allow"
-      comment: "Whitelisted via Ansible automation"
-      groups: [0]
-      enabled: true
-    return_content: true
-    status_code: [200, 201, 409]  # 409 = Conflict (already exists)
-  register: add_whitelist_result
-  loop: "{{ pihole_whitelist | default([]) }}"
-  changed_when: add_whitelist_result.status == 201
-  failed_when: add_whitelist_result.status not in [200, 201, 409]
-  when: 
-    - pihole_auth.json.session.valid
-    - pihole_whitelist is defined 
+- name: Add whitelist domains using pihole allow command
+  shell: |
+    pihole allow {{ pihole_whitelist | join(' ') }}
+  register: whitelist_add_result
+  changed_when: "'Added' in whitelist_add_result.stdout"
+  failed_when: false
+  when:
+    - pihole_whitelist is defined
     - pihole_whitelist | length > 0
-    - existing_whitelist.json is defined
-    - item not in (existing_whitelist.json.lists | default([]) | selectattr('address', 'defined') | map(attribute='address') | list)
 
-- name: Get existing blacklist first  
-  uri:
-    url: "http://localhost/api/lists?type=block"
-    method: GET
-    headers:
-      accept: "application/json"
-      cookie: "sid={{ pihole_session_id }}; CSRF_TOKEN={{ pihole_csrf_token }}"
-    return_content: true
-  register: existing_blacklist
+- name: Remove whitelist domains not in configuration
+  shell: |
+    DOMAINS_TO_REMOVE=""
+    {% for domain in current_whitelist.stdout_lines %}
+    {% if domain not in (pihole_whitelist | default([])) and domain != "" %}
+    DOMAINS_TO_REMOVE="$DOMAINS_TO_REMOVE {{ domain }}"
+    {% endif %}
+    {% endfor %}
+    if [ -n "$DOMAINS_TO_REMOVE" ]; then
+      pihole allow -d $DOMAINS_TO_REMOVE
+      echo "Removed from whitelist: $DOMAINS_TO_REMOVE"
+    else
+      echo "No domains to remove from whitelist"
+    fi
+  register: whitelist_remove_result
+  changed_when: "'Removed from whitelist:' in whitelist_remove_result.stdout"
+  when:
+    - current_whitelist.stdout_lines is defined
+    - current_whitelist.stdout_lines | length > 0
+
+- name: Display whitelist management result
+  debug:
+    msg: |
+      Whitelist Management:
+      - Added: {{ whitelist_add_result.stdout_lines | default(['None']) | join(', ') }}
+      - Removed: {{ whitelist_remove_result.stdout if whitelist_remove_result is defined else 'None' }}
+      - Configured: {{ pihole_whitelist | length if pihole_whitelist is defined else 0 }} domains
+
+# ===== BLACKLIST MANAGEMENT (Declarative - Sync with .env.yaml) =====
+- name: Get current blacklist domains
+  shell: pihole deny -l | grep '^\s*-\s*"' | sed 's/^\s*-\s*"\(.*\)"/\1/' || true
+  register: current_blacklist
   changed_when: false
   failed_when: false
-  when: pihole_auth.json.session.valid
 
-- name: Add domains to blacklist using FTL API v6+ (POST /api/lists) - only if not exists
-  uri:
-    url: "http://localhost/api/lists"
-    method: POST
-    headers:
-      accept: "application/json"
-      content-type: "application/json"
-      cookie: "sid={{ pihole_session_id }}; CSRF_TOKEN={{ pihole_csrf_token }}"
-    body_format: json
-    body:
-      address: "{{ item }}"
-      type: "block"
-      comment: "Blacklisted via Ansible automation"
-      groups: [0]
-      enabled: true
-    return_content: true
-    status_code: [200, 201, 409]  # 409 = Conflict (already exists)
-  register: add_blacklist_result
-  loop: "{{ pihole_blacklist | default([]) }}"
-  changed_when: add_blacklist_result.status == 201
-  failed_when: add_blacklist_result.status not in [200, 201, 409]
-  when: 
-    - pihole_auth.json.session.valid
-    - pihole_blacklist is defined 
+- name: Add blacklist domains using pihole deny command
+  shell: |
+    pihole deny {{ pihole_blacklist | join(' ') }}
+  register: blacklist_add_result
+  changed_when: "'Added' in blacklist_add_result.stdout"
+  failed_when: false
+  when:
+    - pihole_blacklist is defined
     - pihole_blacklist | length > 0
-    - existing_blacklist.json is defined
-    - item not in (existing_blacklist.json.lists | default([]) | selectattr('address', 'defined') | map(attribute='address') | list)
+
+- name: Remove blacklist domains not in configuration
+  shell: |
+    DOMAINS_TO_REMOVE=""
+    {% for domain in current_blacklist.stdout_lines %}
+    {% if domain not in (pihole_blacklist | default([])) and domain != "" %}
+    DOMAINS_TO_REMOVE="$DOMAINS_TO_REMOVE {{ domain }}"
+    {% endif %}
+    {% endfor %}
+    if [ -n "$DOMAINS_TO_REMOVE" ]; then
+      pihole deny -d $DOMAINS_TO_REMOVE
+      echo "Removed from blacklist: $DOMAINS_TO_REMOVE"
+    else
+      echo "No domains to remove from blacklist"
+    fi
+  register: blacklist_remove_result
+  changed_when: "'Removed from blacklist:' in blacklist_remove_result.stdout"
+  when:
+    - current_blacklist.stdout_lines is defined
+    - current_blacklist.stdout_lines | length > 0
+
+- name: Display blacklist management result
+  debug:
+    msg: |
+      Blacklist Management:
+      - Added: {{ blacklist_add_result.stdout_lines | default(['None']) | join(', ') }}
+      - Removed: {{ blacklist_remove_result.stdout if blacklist_remove_result is defined else 'None' }}
+      - Configured: {{ pihole_blacklist | length if pihole_blacklist is defined else 0 }} domains
 
 - name: Get all lists to verify additions
   uri:
@@ -158,7 +174,8 @@
     method: GET
     headers:
       accept: "application/json"
-      cookie: "sid={{ pihole_session_id }}; CSRF_TOKEN={{ pihole_csrf_token }}"
+      Cookie: "sid={{ pihole_session_id }}"
+      X-FTL-SID: "{{ pihole_session_id }}"
     return_content: true
   register: all_lists
   changed_when: false
@@ -172,7 +189,8 @@
     headers:
       accept: "application/json"
       content-type: "application/json"
-      cookie: "sid={{ pihole_session_id }}; CSRF_TOKEN={{ pihole_csrf_token }}"
+      Cookie: "sid={{ pihole_session_id }}"
+      X-FTL-SID: "{{ pihole_session_id }}"
     body_format: json
     body: {}
     return_content: true
@@ -181,11 +199,13 @@
   register: gravity_update
   changed_when: gravity_update.status in [200, 204]
   failed_when: false
-  when: 
+  when:
     - pihole_auth.json.session.valid
-    - (add_adlist_result.changed | default(false)) or 
-      (add_whitelist_result.changed | default(false)) or 
-      (add_blacklist_result.changed | default(false))
+    - (add_adlist_result.changed | default(false)) or
+      (whitelist_add_result.changed | default(false)) or
+      (whitelist_remove_result.changed | default(false)) or
+      (blacklist_add_result.changed | default(false)) or
+      (blacklist_remove_result.changed | default(false))
 
 - name: Get updated statistics using FTL API
   uri:
@@ -193,12 +213,13 @@
     method: GET
     headers:
       accept: "application/json"
-      cookie: "sid={{ pihole_session_id }}; CSRF_TOKEN={{ pihole_csrf_token }}"
+      Cookie: "sid={{ pihole_session_id }}"
+      X-FTL-SID: "{{ pihole_session_id }}"
     return_content: true
   register: pihole_stats
   changed_when: false
   failed_when: false
-  when: 
+  when:
     - pihole_auth.json.session.valid
     - gravity_update is succeeded
 
@@ -211,14 +232,11 @@
       Adlists Added: {{ pihole_blocklists | length if pihole_blocklists is defined else 0 }} configured
       Whitelist Added: {{ pihole_whitelist | length if pihole_whitelist is defined else 0 }} domains
       Blacklist Added: {{ pihole_blacklist | length if pihole_blacklist is defined else 0 }} domains
-      Total Lists in System: {{ all_lists.json | length if all_lists.json is defined else 'Unknown' }}
-      Block Lists: {{ (all_lists.json | selectattr('type', 'equalto', 'block') | list | length) if all_lists.json is defined else 'Unknown' }}
-      Allow Lists: {{ (all_lists.json | selectattr('type', 'equalto', 'allow') | list | length) if all_lists.json is defined else 'Unknown' }}
-      Gravity Update: {{ 'SUCCESS' if gravity_update.changed else 'NO CHANGES' }}
+      Gravity Update: {{ 'SUCCESS' if (gravity_update.changed | default(false)) else 'NO CHANGES' }}
       Session ID: {{ pihole_session_id | default('Not available') }}
-      Total Blocked Domains: {{ pihole_stats.json.blocked_domains | default('Unknown') }}
-      DNS Queries Today: {{ pihole_stats.json.queries_today | default('Unknown') }}
       ===================================
+      
+      Note: List counts and statistics available via web interface at http://{{ ansible_host }}/admin/
 
 - name: Logout from Pi-hole session (cleanup)
   uri:
@@ -226,11 +244,12 @@
     method: DELETE
     headers:
       accept: "application/json"
-      cookie: "sid={{ pihole_session_id }}; CSRF_TOKEN={{ pihole_csrf_token }}"
+      Cookie: "sid={{ pihole_session_id }}"
+      X-FTL-SID: "{{ pihole_session_id }}"
     return_content: true
   register: logout_result
   changed_when: false
   failed_when: false
-  when: 
+  when:
     - pihole_auth.json.session.valid
     - pihole_session_id is defined

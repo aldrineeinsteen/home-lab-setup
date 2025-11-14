@@ -1,0 +1,111 @@
+---
+# Pi-hole Installation Tasks
+# Installs Pi-hole using the official installer
+
+- name: Check if Pi-hole is already installed
+  stat:
+    path: /usr/local/bin/pihole
+  register: pihole_installed
+
+- name: Display Pi-hole installation status
+  debug:
+    msg: "Pi-hole is {{ 'already installed' if pihole_installed.stat.exists else 'not installed' }}"
+
+- name: Install required dependencies
+  apt:
+    name:
+      - curl
+      - git
+      - dnsutils
+      - net-tools
+      - sudo
+    state: present
+    update_cache: yes
+  when: not pihole_installed.stat.exists
+
+- name: Create Pi-hole installation directory
+  file:
+    path: /etc/pihole
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: not pihole_installed.stat.exists
+
+- name: Create setupVars.conf for unattended installation
+  copy:
+    content: |
+      PIHOLE_INTERFACE={{ pihole_interface }}
+      IPV4_ADDRESS={{ ansible_default_ipv4.address }}/{{ ansible_default_ipv4.netmask }}
+      IPV6_ADDRESS=
+      QUERY_LOGGING=true
+      INSTALL_WEB_SERVER=true
+      INSTALL_WEB_INTERFACE=true
+      LIGHTTPD_ENABLED=true
+      CACHE_SIZE=10000
+      DNS_FQDN_REQUIRED=true
+      DNS_BOGUS_PRIV=true
+      DNSMASQ_LISTENING=local
+      WEBPASSWORD=
+      BLOCKING_ENABLED=true
+    dest: /etc/pihole/setupVars.conf
+    owner: root
+    group: root
+    mode: '0644'
+  when: not pihole_installed.stat.exists
+
+- name: Download Pi-hole installer
+  get_url:
+    url: https://install.pi-hole.net
+    dest: /tmp/pihole-install.sh
+    mode: '0755'
+  when: not pihole_installed.stat.exists
+
+- name: Run Pi-hole installer (unattended)
+  command: bash /tmp/pihole-install.sh --unattended
+  register: pihole_install_result
+  when: not pihole_installed.stat.exists
+  changed_when: true
+
+- name: Display installation result
+  debug:
+    msg: |
+      Pi-hole Installation Result:
+      {{ pihole_install_result.stdout | default('Already installed') }}
+  when: pihole_install_result is defined
+
+- name: Verify Pi-hole installation
+  command: pihole version --short
+  register: pihole_version
+  changed_when: false
+  failed_when: pihole_version.rc != 0
+
+- name: Display Pi-hole version
+  debug:
+    msg: "Pi-hole version installed: {{ pihole_version.stdout }}"
+
+- name: Ensure Pi-hole FTL service is enabled and started
+  systemd:
+    name: pihole-FTL
+    enabled: yes
+    state: started
+  register: pihole_service_result
+
+- name: Display service status
+  debug:
+    msg: "Pi-hole FTL service is {{ pihole_service_result.status.ActiveState | default('running') }}"
+
+- name: Set Pi-hole web admin password
+  shell: |
+    pihole setpassword '{{ pihole_admin_password }}'
+  register: password_set_result
+  changed_when: "'New password set' in password_set_result.stdout"
+  when: pihole_admin_password is defined and pihole_admin_password | length > 0
+  no_log: false
+
+- name: Display password configuration status
+  debug:
+    msg: "Web admin password: {{ 'SET' if password_set_result.changed else 'Already configured' }}"
+  when: password_set_result is defined
+
+# Made with Bob

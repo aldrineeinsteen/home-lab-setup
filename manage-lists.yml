@@ -1,0 +1,158 @@
+---
+# Pi-hole List Management Playbook
+# Manages blocklists (adlists), whitelist (allow), and blacklist (deny) from .env.yaml
+# Uses Pi-hole v6 CLI commands for domain management
+# Supports adding and removing lists dynamically
+
+- name: Manage Pi-hole Lists
+  hosts: pihole
+  become: true
+  gather_facts: false
+  
+  tasks:
+    # ===== BLOCKLISTS (Adlists - URLs to blocklist files) =====
+    - name: Get current blocklists (adlists) from Pi-hole
+      shell: curl -s 'http://localhost/api/lists?type=block' | jq -r '.lists[] | select(.address | startswith("http")) | .address'
+      register: current_blocklists
+      changed_when: false
+      failed_when: false
+
+    - name: Add new blocklists (adlists)
+      shell: |
+        curl -s -X POST 'http://localhost/api/lists?type=block' \
+          -H 'Content-Type: application/json' \
+          -d '{"address":"{{ item }}","comment":"Blocklist via Ansible","enabled":true}' | jq -r '.processed.success[].item'
+      loop: "{{ pihole_blocklists | default([]) }}"
+      when: 
+        - pihole_blocklists is defined
+        - pihole_blocklists | length > 0
+        - item not in current_blocklists.stdout_lines
+      register: add_blocklist_result
+      changed_when: add_blocklist_result.stdout != ""
+
+    - name: Remove blocklists not in configuration
+      shell: |
+        LIST_ID=$(curl -s 'http://localhost/api/lists?type=block' | jq -r '.lists[] | select(.address=="{{ item }}") | .id')
+        if [ -n "$LIST_ID" ]; then
+          curl -s -X DELETE "http://localhost/api/lists/$LIST_ID"
+          echo "Removed: {{ item }}"
+        fi
+      loop: "{{ current_blocklists.stdout_lines }}"
+      when:
+        - current_blocklists.stdout_lines is defined
+        - current_blocklists.stdout_lines | length > 0
+        - item not in (pihole_blocklists | default([]))
+        - item != ""
+      register: remove_blocklist_result
+      changed_when: "'Removed:' in remove_blocklist_result.stdout"
+
+    # ===== WHITELIST (Exact Allow Domains) using CLI =====
+    - name: Get current whitelist domains
+      shell: pihole allow -l | grep '^\s*-\s*"' | sed 's/^\s*-\s*"\(.*\)"/\1/' || true
+      register: current_whitelist
+      changed_when: false
+      failed_when: false
+
+    - name: Add whitelist domains using pihole allow command
+      shell: pihole allow {{ pihole_whitelist | join(' ') }}
+      when:
+        - pihole_whitelist is defined
+        - pihole_whitelist | length > 0
+      register: add_whitelist_result
+      changed_when: "'Added' in add_whitelist_result.stdout"
+
+    - name: Remove whitelist domains not in configuration
+      shell: |
+        DOMAINS_TO_REMOVE=""
+        {% for domain in current_whitelist.stdout_lines %}
+        {% if domain not in (pihole_whitelist | default([])) and domain != "" %}
+        DOMAINS_TO_REMOVE="$DOMAINS_TO_REMOVE {{ domain }}"
+        {% endif %}
+        {% endfor %}
+        if [ -n "$DOMAINS_TO_REMOVE" ]; then
+          pihole allow -d $DOMAINS_TO_REMOVE
+          echo "Removed domains: $DOMAINS_TO_REMOVE"
+        fi
+      when:
+        - current_whitelist.stdout_lines is defined
+        - current_whitelist.stdout_lines | length > 0
+      register: remove_whitelist_result
+      changed_when: "'Removed domains:' in remove_whitelist_result.stdout"
+
+    # ===== BLACKLIST (Exact Deny Domains) using CLI =====
+    - name: Get current blacklist domains
+      shell: pihole deny -l | grep '^\s*-\s*"' | sed 's/^\s*-\s*"\(.*\)"/\1/' || true
+      register: current_blacklist
+      changed_when: false
+      failed_when: false
+
+    - name: Add blacklist domains using pihole deny command
+      shell: pihole deny {{ pihole_blacklist | join(' ') }}
+      when:
+        - pihole_blacklist is defined
+        - pihole_blacklist | length > 0
+      register: add_blacklist_result
+      changed_when: "'Added' in add_blacklist_result.stdout"
+
+    - name: Remove blacklist domains not in configuration
+      shell: |
+        DOMAINS_TO_REMOVE=""
+        {% for domain in current_blacklist.stdout_lines %}
+        {% if domain not in (pihole_blacklist | default([])) and domain != "" %}
+        DOMAINS_TO_REMOVE="$DOMAINS_TO_REMOVE {{ domain }}"
+        {% endif %}
+        {% endfor %}
+        if [ -n "$DOMAINS_TO_REMOVE" ]; then
+          pihole deny -d $DOMAINS_TO_REMOVE
+          echo "Removed domains: $DOMAINS_TO_REMOVE"
+        fi
+      when:
+        - current_blacklist.stdout_lines is defined
+        - current_blacklist.stdout_lines | length > 0
+      register: remove_blacklist_result
+      changed_when: "'Removed domains:' in remove_blacklist_result.stdout"
+
+    # ===== GRAVITY UPDATE =====
+    - name: Check if gravity update is needed
+      set_fact:
+        gravity_needed: "{{ (add_blocklist_result.changed | default(false)) or (remove_blocklist_result.changed | default(false)) }}"
+
+    - name: Update gravity to process blocklist changes
+      command: pihole updateGravity
+      when: gravity_needed | bool
+      register: gravity_result
+      changed_when: true
+
+    # ===== SUMMARY =====
+    - name: Get final counts
+      shell: |
+        echo "Blocklists (Adlists): $(curl -s 'http://localhost/api/lists?type=block' | jq '[.lists[] | select(.address | startswith("http"))] | length')"
+        echo "Whitelist (Exact Allow): $(pihole allow -l | grep -v "^$" | grep -v "Exact" | grep -v "^-" | wc -l)"
+        echo "Blacklist (Exact Deny): $(pihole deny -l | grep -v "^$" | grep -v "Exact" | grep -v "^-" | wc -l)"
+      register: final_counts
+      changed_when: false
+
+    - name: Display management summary
+      debug:
+        msg: |
+          Pi-hole List Management Summary:
+          ================================
+          BLOCKLISTS (Adlists - URLs):
+            Added: {{ add_blocklist_result.results | selectattr('changed', 'equalto', true) | list | length if add_blocklist_result.results is defined else 0 }}
+            Removed: {{ remove_blocklist_result.results | selectattr('changed', 'equalto', true) | list | length if remove_blocklist_result.results is defined else 0 }}
+          
+          WHITELIST (Exact Allow Domains):
+            Status: {{ 'Updated' if add_whitelist_result.changed | default(false) or remove_whitelist_result.changed | default(false) else 'No changes' }}
+            Configured: {{ pihole_whitelist | length if pihole_whitelist is defined else 0 }} domains
+          
+          BLACKLIST (Exact Deny Domains):
+            Status: {{ 'Updated' if add_blacklist_result.changed | default(false) or remove_blacklist_result.changed | default(false) else 'No changes' }}
+            Configured: {{ pihole_blacklist | length if pihole_blacklist is defined else 0 }} domains
+          
+          Gravity Updated: {{ 'Yes' if gravity_needed | bool else 'No changes needed' }}
+          
+          Current Status:
+          {{ final_counts.stdout }}
+          ================================
+
+# Made with Bob

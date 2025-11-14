@@ -1,0 +1,193 @@
+---
+# Pi-hole Network Configuration Tasks - Clean FTL Approach
+# Uses pure pihole-FTL --config commands for network settings
+# Compatible with Pi-hole v6+
+
+- name: Configure network domain using FTL config
+  block:
+    - name: Set local domain via FTL config
+      command: pihole-FTL --config dns.domain "{{ pihole_network_postfix | default('local') }}"
+      register: domain_config_result
+      changed_when: domain_config_result.stdout != (pihole_network_postfix | default('local'))
+      failed_when: false
+      notify: restart pihole-FTL
+
+    - name: Display domain configuration
+      debug:
+        msg: |
+          Network Domain Configuration:
+          - Domain: {{ pihole_network_postfix | default('local') }}
+          - Status: {{ 'Updated' if domain_config_result.changed else 'No change needed' }}
+  when: pihole_network_postfix is defined
+
+- name: Configure DHCP settings using FTL config
+  block:
+    - name: Enable DHCP server
+      command: pihole-FTL --config dhcp.active true
+      register: dhcp_active_result
+      changed_when: dhcp_active_result.stdout != 'true'
+      notify: restart pihole-FTL
+
+    - name: Set DHCP start address
+      command: pihole-FTL --config dhcp.start {{ pihole_dhcp_start }}
+      register: dhcp_start_result
+      changed_when: dhcp_start_result.stdout != pihole_dhcp_start
+      notify: restart pihole-FTL
+
+    - name: Set DHCP end address
+      command: pihole-FTL --config dhcp.end {{ pihole_dhcp_end }}
+      register: dhcp_end_result
+      changed_when: dhcp_end_result.stdout != pihole_dhcp_end
+      notify: restart pihole-FTL
+
+    - name: Set DHCP router/gateway
+      command: pihole-FTL --config dhcp.router {{ pihole_dhcp_router }}
+      register: dhcp_router_result
+      changed_when: dhcp_router_result.stdout != pihole_dhcp_router
+      notify: restart pihole-FTL
+
+    - name: Set DHCP lease time
+      command: pihole-FTL --config dhcp.leaseTime {{ pihole_dhcp_lease_time | default('24h') }}
+      register: dhcp_lease_result
+      changed_when: dhcp_lease_result.stdout != (pihole_dhcp_lease_time | default('24h'))
+      notify: restart pihole-FTL
+
+    - name: Set DHCP domain (via dnsmasq config)
+      lineinfile:
+        path: /etc/dnsmasq.d/02-pihole-dhcp.conf
+        regexp: "^domain="
+        line: "domain={{ pihole_network_postfix | default('lan') }}"
+        create: true
+      register: dhcp_domain_result
+      notify: restart pihole-FTL
+
+    - name: Display DHCP configuration
+      debug:
+        msg: |
+          DHCP Configuration (FTL):
+          - Active: {{ dhcp_active_result.stdout }}
+          - Range: {{ dhcp_start_result.stdout }} - {{ dhcp_end_result.stdout }}
+          - Gateway: {{ dhcp_router_result.stdout }}
+          - Domain: {{ pihole_network_postfix | default('lan') }} (configured via dnsmasq)
+          - Lease Time: {{ dhcp_lease_result.stdout }}
+
+  when: pihole_dhcp_enabled | default(false) | bool
+
+- name: Disable DHCP if not enabled
+  command: pihole-FTL --config dhcp.active false
+  register: dhcp_disable_result
+  changed_when: dhcp_disable_result.stdout != 'false'
+  when: not (pihole_dhcp_enabled | default(false) | bool)
+  notify: restart pihole-FTL
+
+- name: Configure custom DNS entries
+  block:
+    - name: Create custom DNS list file
+      copy:
+        content: |
+          # Pi-hole Custom DNS Configuration
+          # Managed by Ansible - Do not edit manually
+          # Generated on {{ ansible_date_time.iso8601 }}
+          {% for dns_entry in pihole_custom_dns | default([]) %}
+          {{ dns_entry.ip }} {{ dns_entry.domain }}
+          {% endfor %}
+        dest: /etc/pihole/custom.list
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart pihole-FTL
+
+    - name: Add custom DNS entries to /etc/hosts
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ item.ip }} {{ item.domain }}"
+        regexp: "^.*{{ item.domain }}$"
+        backup: true
+      loop: "{{ pihole_custom_dns | default([]) }}"
+
+    - name: Display custom DNS configuration
+      debug:
+        msg: |
+          Custom DNS Entries Configured:
+          {% for dns_entry in pihole_custom_dns | default([]) %}
+          - {{ dns_entry.domain }} -> {{ dns_entry.ip }}
+          {% endfor %}
+
+  when: pihole_custom_dns is defined and pihole_custom_dns | length > 0
+
+- name: Reload Pi-hole DNS configuration
+  command: pihole restartdns reload-lists
+  changed_when: false
+
+- name: Test custom DNS resolution
+  block:
+    - name: Test each custom DNS entry
+      command: dig @localhost {{ item.domain }} +short
+      loop: "{{ pihole_custom_dns | default([]) }}"
+      register: dns_test_results
+      changed_when: false
+      failed_when: false
+
+    - name: Display DNS test results
+      debug:
+        msg: |
+          Custom DNS Test Results:
+          {% for result in dns_test_results.results | default([]) %}
+          - {{ result.item.domain }}: {{ result.stdout if result.stdout else 'FAILED' }} (Expected: {{ result.item.ip }})
+          {% endfor %}
+
+  when: pihole_custom_dns is defined and pihole_custom_dns | length > 0
+
+- name: Verify network configuration
+  block:
+    - name: Get current network configuration
+      shell: |
+        echo "Network Configuration Status:"
+        echo "DNS Interface: $(pihole-FTL --config dns.interface 2>/dev/null || echo 'N/A')"
+        echo "DNS Domain: $(pihole-FTL --config dns.domain 2>/dev/null || echo 'N/A')"
+        echo "DHCP Active: $(pihole-FTL --config dhcp.active 2>/dev/null || echo 'N/A')"
+        {% if pihole_dhcp_enabled | default(false) %}
+        echo "DHCP Range: $(pihole-FTL --config dhcp.start 2>/dev/null || echo 'N/A') - $(pihole-FTL --config dhcp.end 2>/dev/null || echo 'N/A')"
+        echo "DHCP Router: $(pihole-FTL --config dhcp.router 2>/dev/null || echo 'N/A')"
+        {% endif %}
+      register: network_status
+      changed_when: false
+
+    - name: Display network configuration status
+      debug:
+        msg: |
+          {{ network_status.stdout }}
+
+- name: Create DHCP check script
+  copy:
+    content: |
+      #!/bin/bash
+      # Pi-hole DHCP Status Check Script
+      # Generated by Ansible
+      
+      echo "=== DHCP Configuration ==="
+      echo "Active: $(pihole-FTL --config dhcp.active 2>/dev/null || echo 'N/A')"
+      echo "Range: $(pihole-FTL --config dhcp.start 2>/dev/null || echo 'N/A') - $(pihole-FTL --config dhcp.end 2>/dev/null || echo 'N/A')"
+      echo "Router: $(pihole-FTL --config dhcp.router 2>/dev/null || echo 'N/A')"
+      echo "Domain: {{ pihole_network_postfix | default('lan') }} (via dnsmasq)"
+      echo "Lease Time: $(pihole-FTL --config dhcp.leaseTime 2>/dev/null || echo 'N/A')"
+      echo
+      
+      echo "=== DHCP Port Status ==="
+      ss -ulnp | grep ':67' || echo "DHCP port 67 not listening"
+      echo
+      
+      echo "=== DHCP Leases ==="
+      if [ -f /etc/pihole/dhcp.leases ]; then
+        echo "Lease file exists: $(wc -l < /etc/pihole/dhcp.leases) entries"
+        cat /etc/pihole/dhcp.leases
+      else
+        echo "No DHCP lease file found"
+      fi
+    dest: /usr/local/bin/pihole-dhcp-check
+    owner: root
+    group: root
+    mode: '0755'
+  when: pihole_dhcp_enabled | default(false) | bool
+
+# Made with Bob

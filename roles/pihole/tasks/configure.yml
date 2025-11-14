@@ -143,10 +143,14 @@
           register: dhcp_logging_result
           changed_when: dhcp_logging_result.stdout != 'true'
 
-        - name: Configure DHCP domain name
-          command: pihole-FTL --config dhcp.domain "{{ pihole_network_postfix | default('lan') }}"
+        - name: Configure DHCP domain name (via dnsmasq config)
+          lineinfile:
+            path: /etc/dnsmasq.d/02-pihole-dhcp.conf
+            regexp: "^domain="
+            line: "domain={{ pihole_network_postfix | default('lan') }}"
+            create: true
           register: dhcp_domain_result
-          changed_when: dhcp_domain_result.stdout != (pihole_network_postfix | default('lan'))
+          notify: restart pihole-FTL
 
         - name: Disable IPv6 DHCP (for simplicity)
           command: pihole-FTL --config dhcp.ipv6 false
@@ -166,7 +170,7 @@
               - Active: {{ dhcp_active_result.stdout }}
               - Range: {{ dhcp_start_result.stdout }} - {{ dhcp_end_result.stdout }}
               - Gateway: {{ dhcp_router_result.stdout }}
-              - Domain: {{ dhcp_domain_result.stdout }}
+              - Domain: {{ pihole_network_postfix | default('lan') }} (configured via dnsmasq)
               - Lease Time: {{ dhcp_lease_result.stdout }}
               - Logging: {{ dhcp_logging_result.stdout }}
               - IPv6: {{ dhcp_ipv6_result.stdout }}
