@@ -15,8 +15,8 @@
   tags: ['network', 'dhcp', 'dns']
   when: pihole_dhcp_enabled is defined or pihole_custom_dns is defined
 
-- name: Include REST API list management
-  include_tasks: lists_api.yml
+- name: Import REST API list management
+  import_tasks: lists_api.yml
   tags: ['lists', 'blocklists', 'api']
 
 - name: Include service management tasks
