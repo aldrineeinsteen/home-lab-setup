@@ -124,13 +124,13 @@ pihole | SUCCESS => {
 
 **Option A: Using the deployment script (recommended)**
 ```bash
-./deploy-modern-pihole.sh
+./services/pihole/scripts/deploy-modern-pihole.sh
 ```
 
 **Option B: Using Ansible directly**
 ```bash
 export ANSIBLE_CONFIG_IGNORE_WORLD_WRITABLE=True
-ansible-playbook -i inventory/hosts.yml playbooks/pihole.yml --extra-vars "@.env.yaml"
+ansible-playbook -i inventory/hosts.yml services/pihole/playbooks/pihole.yml --extra-vars "@.env.yaml"
 ```
 
 The deployment will:
@@ -244,13 +244,13 @@ pihole:
 Then run the list management playbook:
 ```bash
 export ANSIBLE_CONFIG_IGNORE_WORLD_WRITABLE=True
-ansible-playbook -i inventory/hosts.yml playbooks/pihole.yml --extra-vars "@.env.yaml" --tags lists
+ansible-playbook -i inventory/hosts.yml services/pihole/playbooks/pihole.yml --extra-vars "@.env.yaml" --tags lists
 ```
 
 Or use the full deployment to update everything:
 ```bash
 export ANSIBLE_CONFIG_IGNORE_WORLD_WRITABLE=True
-ansible-playbook -i inventory/hosts.yml playbooks/pihole.yml --extra-vars "@.env.yaml"
+ansible-playbook -i inventory/hosts.yml services/pihole/playbooks/pihole.yml --extra-vars "@.env.yaml"
 ```
 
 ### Fix Authentication and DNS Issues
@@ -258,7 +258,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/pihole.yml --extra-vars "@.env
 If you need to reconfigure web password or local DNS:
 ```bash
 export ANSIBLE_CONFIG_IGNORE_WORLD_WRITABLE=True
-ansible-playbook -i inventory/hosts.yml fix-auth-and-dns.yml --extra-vars "@.env.yaml"
+ansible-playbook -i inventory/hosts.yml services/pihole/playbooks/fix-auth-and-dns.yml --extra-vars "@.env.yaml"
 ```
 
 ### Check Pi-hole Status
@@ -486,13 +486,13 @@ pihole regex --allow -l     # Regex whitelist (patterns)
 
 | Playbook | Purpose | Usage |
 |----------|---------|-------|
-| `playbooks/pihole.yml` | Full Pi-hole deployment | `ansible-playbook -i inventory/hosts.yml playbooks/pihole.yml --extra-vars "@.env.yaml"` |
-| `playbooks/pihole.yml --tags lists` | Update lists only (blocklists/whitelist/blacklist/regex) | `ansible-playbook -i inventory/hosts.yml playbooks/pihole.yml --extra-vars "@.env.yaml" --tags lists` |
-| `fix-auth-and-dns.yml` | Fix web password and local DNS | `ansible-playbook -i inventory/hosts.yml fix-auth-and-dns.yml --extra-vars "@.env.yaml"` |
-| `set-static-ip.yml` | Configure static IP (use with caution) | `ansible-playbook -i inventory/hosts.yml set-static-ip.yml --extra-vars "@.env.yaml"` |
-| `update-pihole.yml` | Update Pi-hole to latest version | `ansible-playbook -i inventory/hosts.yml update-pihole.yml --extra-vars "@.env.yaml"` |
-| `update-system.yml` | Update OS packages and security updates | `ansible-playbook -i inventory/hosts.yml update-system.yml --extra-vars "@.env.yaml"` |
-| `update-all.yml` | Update both Pi-hole and OS | `ansible-playbook -i inventory/hosts.yml update-all.yml --extra-vars "@.env.yaml"` |
+| `services/pihole/playbooks/pihole.yml` | Full Pi-hole deployment | `ansible-playbook -i inventory/hosts.yml services/pihole/playbooks/pihole.yml --extra-vars "@.env.yaml"` |
+| `services/pihole/playbooks/pihole.yml --tags lists` | Update lists only (blocklists/whitelist/blacklist/regex) | `ansible-playbook -i inventory/hosts.yml services/pihole/playbooks/pihole.yml --extra-vars "@.env.yaml" --tags lists` |
+| `services/pihole/playbooks/fix-auth-and-dns.yml` | Fix web password and local DNS | `ansible-playbook -i inventory/hosts.yml services/pihole/playbooks/fix-auth-and-dns.yml --extra-vars "@.env.yaml"` |
+| `services/pihole/playbooks/set-static-ip.yml` | Configure static IP (use with caution) | `ansible-playbook -i inventory/hosts.yml services/pihole/playbooks/set-static-ip.yml --extra-vars "@.env.yaml"` |
+| `services/pihole/playbooks/update-pihole.yml` | Update Pi-hole to latest version | `ansible-playbook -i inventory/hosts.yml services/pihole/playbooks/update-pihole.yml --extra-vars "@.env.yaml"` |
+| `services/pihole/playbooks/update-system.yml` | Update OS packages and security updates | `ansible-playbook -i inventory/hosts.yml services/pihole/playbooks/update-system.yml --extra-vars "@.env.yaml"` |
+| `services/pihole/playbooks/update-all.yml` | Update both Pi-hole and OS | `ansible-playbook -i inventory/hosts.yml services/pihole/playbooks/update-all.yml --extra-vars "@.env.yaml"` |
 
 ## 🔄 System Updates
 
@@ -501,7 +501,7 @@ pihole regex --allow -l     # Regex whitelist (patterns)
 Updates Pi-hole core, FTL, web interface, and gravity:
 ```bash
 export ANSIBLE_CONFIG_IGNORE_WORLD_WRITABLE=True
-ansible-playbook -i inventory/hosts.yml update-pihole.yml --extra-vars "@.env.yaml"
+ansible-playbook -i inventory/hosts.yml services/pihole/playbooks/update-pihole.yml --extra-vars "@.env.yaml"
 ```
 
 ### Update Operating System Only
@@ -509,7 +509,7 @@ ansible-playbook -i inventory/hosts.yml update-pihole.yml --extra-vars "@.env.ya
 Updates all OS packages and security updates:
 ```bash
 export ANSIBLE_CONFIG_IGNORE_WORLD_WRITABLE=True
-ansible-playbook -i inventory/hosts.yml update-system.yml --extra-vars "@.env.yaml"
+ansible-playbook -i inventory/hosts.yml services/pihole/playbooks/update-system.yml --extra-vars "@.env.yaml"
 ```
 
 ### Update Everything (Recommended Monthly)
@@ -517,7 +517,7 @@ ansible-playbook -i inventory/hosts.yml update-system.yml --extra-vars "@.env.ya
 Updates both Pi-hole and the OS in one go:
 ```bash
 export ANSIBLE_CONFIG_IGNORE_WORLD_WRITABLE=True
-ansible-playbook -i inventory/hosts.yml update-all.yml --extra-vars "@.env.yaml"
+ansible-playbook -i inventory/hosts.yml services/pihole/playbooks/update-all.yml --extra-vars "@.env.yaml"
 ```
 
 **Note:** If a system reboot is required (usually after kernel updates), the playbook will notify you. To reboot:
@@ -541,7 +541,7 @@ Edit `.env.yaml` and `inventory/hosts.yml` with the new IP address
 ### 3. Deploy
 ```bash
 export ANSIBLE_CONFIG_IGNORE_WORLD_WRITABLE=True
-ansible-playbook -i inventory/hosts.yml playbooks/pihole.yml --extra-vars "@.env.yaml"
+ansible-playbook -i inventory/hosts.yml services/pihole/playbooks/pihole.yml --extra-vars "@.env.yaml"
 ```
 
 ### 4. Configure Static IP (Router Method)
@@ -573,28 +573,33 @@ dig @192.168.100.99 google.com
 
 ```
 home-lab-setup/
-├── .env.yaml                    # Your configuration (not in git)
-├── .env.template.yaml           # Configuration template
+├── .env.yaml                           # Your configuration (not in git)
+├── .env.template.yaml                  # Configuration template
+├── ansible.cfg                         # Ansible configuration
 ├── inventory/
-│   └── hosts.yml               # Ansible inventory
-├── playbooks/
-│   └── pihole.yml              # Main deployment playbook
-├── roles/
-│   └── pihole/
-│       ├── tasks/
-│       │   ├── install.yml     # Pi-hole installation
-│       │   ├── configure.yml   # Configuration
-│       │   ├── services.yml    # Service management
-│       │   ├── network_clean.yml # Network settings
-│       │   └── lists_api.yml   # List management
-│       └── handlers/
-│           └── main.yml        # Service handlers
-├── manage-lists.yml            # List management playbook
-├── fix-auth-and-dns.yml        # Fix authentication & DNS
-├── set-static-ip.yml           # Static IP configuration
-├── deploy-modern-pihole.sh     # Deployment script
-└── README.md                   # This file
+│   └── hosts.yml                      # Ansible inventory
+├── services/                           # Service-specific directories
+│   └── pihole/                        # Pi-hole service
+│       ├── README.md                  # Pi-hole specific documentation
+│       ├── PIHOLE_FTL_CONFIG_REFERENCE.md
+│       ├── playbooks/                 # Pi-hole playbooks
+│       │   ├── pihole.yml            # Main deployment
+│       │   ├── update-pihole.yml     # Update Pi-hole
+│       │   ├── update-system.yml     # Update OS
+│       │   ├── update-all.yml        # Update everything
+│       │   ├── fix-auth-and-dns.yml  # Fix auth & DNS
+│       │   └── set-static-ip.yml     # Static IP config
+│       ├── roles/                     # Pi-hole Ansible role
+│       │   └── pihole/
+│       │       ├── tasks/
+│       │       └── handlers/
+│       └── scripts/                   # Deployment scripts
+│           └── deploy-modern-pihole.sh
+├── CONTRIBUTING.md                     # Contribution guidelines
+└── README.md                          # This file
 ```
+
+**Note:** This structure is designed to support multiple Pi-based services. Future services (NAS, media servers, etc.) will follow the same pattern under `services/`.
 
 ## 🤝 Contributing
 
