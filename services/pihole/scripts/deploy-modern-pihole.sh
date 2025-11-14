@@ -10,7 +10,7 @@ echo
 
 # Set environment variables for WSL
 export ANSIBLE_CONFIG_IGNORE_WORLD_WRITABLE=True
-export ANSIBLE_ROLES_PATH=./roles
+export ANSIBLE_ROLES_PATH=./services/pihole/roles
 
 echo "📋 Pre-deployment Checks"
 echo "------------------------"
@@ -86,10 +86,10 @@ echo "---------------------------------------------------"
 # Full deployment
 if [ -n "$CHECK_MODE" ]; then
     echo "📦 Running Pi-hole deployment validation (check mode)..."
-    ansible-playbook -i inventory/hosts.yml playbooks/pihole.yml --extra-vars "@.env.yaml" $CHECK_MODE
+    ansible-playbook -i inventory/hosts.yml services/pihole/playbooks/pihole.yml --extra-vars "@.env.yaml" $CHECK_MODE
 else
     echo "📦 Running full Pi-hole deployment..."
-    ansible-playbook -i inventory/hosts.yml playbooks/pihole.yml --extra-vars "@.env.yaml"
+    ansible-playbook -i inventory/hosts.yml services/pihole/playbooks/pihole.yml --extra-vars "@.env.yaml"
 fi
 
 echo
@@ -99,7 +99,7 @@ echo "------------------------------"
 # Run testing
 if [ -z "$CHECK_MODE" ]; then
     echo "🔬 Executing API and configuration tests..."
-    ansible-playbook -i inventory/hosts.yml playbooks/pihole.yml --extra-vars "@.env.yaml" --tags testing
+    ansible-playbook -i inventory/hosts.yml services/pihole/playbooks/pihole.yml --extra-vars "@.env.yaml" --tags testing
     
     echo "✅ Testing completed successfully"
 else
@@ -137,7 +137,7 @@ echo "   # Run on-device test:"
 echo "   ssh user@$PIHOLE_HOST 'sudo /usr/local/bin/pihole-test-all'"
 echo
 echo "   # Update blocklists only:"
-echo "   ansible-playbook -i inventory/hosts.yml playbooks/pihole.yml --extra-vars '@.env.yaml' --tags blocklists"
+echo "   ansible-playbook -i inventory/hosts.yml services/pihole/playbooks/pihole.yml --extra-vars '@.env.yaml' --tags blocklists"
 echo
 
 echo "✅ Pi-hole deployment completed successfully!"

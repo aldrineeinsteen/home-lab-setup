@@ -3,7 +3,7 @@
 # This playbook automates the installation and configuration of Pi-hole
 # 
 # Usage:
-#   ansible-playbook -i inventory/hosts.yml playbooks/pihole.yml --extra-vars "@.env.yaml"
+#   ansible-playbook -i inventory/hosts.yml services/pihole/playbooks/pihole.yml --extra-vars "@.env.yaml"
 #
 # Prerequisites:
 #   1. Copy .env.template.yaml to .env.yaml and configure your settings
