@@ -6,10 +6,12 @@ Complete Ansible automation for deploying and managing Pi-hole DNS ad-blocker wi
 
 ✅ **Automated Pi-hole v6+ deployment** with modern FTL configuration  
 ✅ **Web interface authentication** with password protection  
-✅ **Custom DNS entries** for local domain resolution  
-✅ **Blocklist management** (5+ default lists included)  
-✅ **Whitelist/Blacklist** domain management via CLI  
-✅ **DHCP server** configuration  
+✅ **Custom DNS entries** for local domain resolution
+✅ **Blocklist management** (5+ default lists included)
+✅ **Whitelist/Blacklist** domain management via CLI
+✅ **Regex pattern support** for advanced blocking/allowing
+✅ **Explicit delete lists** for precise list management
+✅ **DHCP server** configuration
 ✅ **Static IP configuration** (router-based recommended)  
 ✅ **Idempotent playbooks** - safe to run multiple times  
 
@@ -186,9 +188,9 @@ Configure each device to use `192.168.100.99` as DNS server.
 
 ## 🔧 Management & Maintenance
 
-### Manage Blocklists, Whitelist, and Blacklist
+### Manage Blocklists, Whitelist, Blacklist, and Regex Patterns
 
-Edit `.env.yaml` to add/remove domains:
+Edit `.env.yaml` to add/remove domains and patterns:
 ```yaml
 pihole:
   # Blocklists (URLs to blocklist files)
@@ -202,16 +204,53 @@ pihole:
     - "microsoft.com"
     - "your-domain.com"
   
+  # Explicitly delete from whitelist (remove specific domains)
+  delete_whitelist:
+    - "old-domain.com"
+  
   # Blacklist (always block these domains)
   blacklist:
     - "ads.example.com"
     - "tracker.badsite.com"
+  
+  # Explicitly delete from blacklist (remove specific domains)
+  delete_blacklist:
+    - "previously-blocked.com"
+  
+  # Regex Blacklist (block domains matching patterns)
+  regex_blacklist:
+    - "^(.+[-_.])??adse?rv(er?|ice)?s?[0-9]*[-.]"  # Blocks ad servers
+    - "^(.+[-_.])??m?ad[sxv]?[0-9]*[-_.]"          # Blocks ad/marketing domains
+  
+  # Explicitly delete regex from blacklist
+  delete_regex_blacklist:
+    - "^old-pattern$"
+  
+  # Regex Whitelist (allow domains matching patterns)
+  regex_whitelist:
+    - "^(.+\\.)?example\\.com$"  # Allow all example.com subdomains
+  
+  # Explicitly delete regex from whitelist
+  delete_regex_whitelist:
+    - "^old-allow-pattern$"
 ```
+
+**Understanding List Management:**
+- **Regular lists** (`whitelist`, `blacklist`): Exact domain matches
+- **Delete lists** (`delete_whitelist`, `delete_blacklist`): Explicitly remove specific domains
+- **Regex lists** (`regex_blacklist`, `regex_whitelist`): Pattern-based matching for advanced control
+- **Delete regex lists**: Remove specific regex patterns
 
 Then run the list management playbook:
 ```bash
 export ANSIBLE_CONFIG_IGNORE_WORLD_WRITABLE=True
-ansible-playbook -i inventory/hosts.yml manage-lists.yml --extra-vars "@.env.yaml"
+ansible-playbook -i inventory/hosts.yml playbooks/pihole.yml --extra-vars "@.env.yaml" --tags lists
+```
+
+Or use the full deployment to update everything:
+```bash
+export ANSIBLE_CONFIG_IGNORE_WORLD_WRITABLE=True
+ansible-playbook -i inventory/hosts.yml playbooks/pihole.yml --extra-vars "@.env.yaml"
 ```
 
 ### Fix Authentication and DNS Issues
@@ -240,11 +279,17 @@ pihole status
 # Blocklists
 ansible pihole -i inventory/hosts.yml --extra-vars "@.env.yaml" -m shell -a "pihole adlist list" -b
 
-# Whitelist
+# Whitelist (exact domains)
 ansible pihole -i inventory/hosts.yml --extra-vars "@.env.yaml" -m shell -a "pihole allow -l" -b
 
-# Blacklist
+# Blacklist (exact domains)
 ansible pihole -i inventory/hosts.yml --extra-vars "@.env.yaml" -m shell -a "pihole deny -l" -b
+
+# Regex Blacklist (blocking patterns)
+ansible pihole -i inventory/hosts.yml --extra-vars "@.env.yaml" -m shell -a "pihole regex -l" -b
+
+# Regex Whitelist (allowing patterns)
+ansible pihole -i inventory/hosts.yml --extra-vars "@.env.yaml" -m shell -a "pihole regex --allow -l" -b
 ```
 
 ## 📊 What Gets Deployed
@@ -418,21 +463,23 @@ dig @192.168.100.99 pihole.lan
 
 ### Lists Not Updating
 
-**Problem:** Blocklists, whitelist, or blacklist not applying
+**Problem:** Blocklists, whitelist, blacklist, or regex patterns not applying
 
 ```bash
 # Run the list management playbook
 export ANSIBLE_CONFIG_IGNORE_WORLD_WRITABLE=True
-ansible-playbook -i inventory/hosts.yml manage-lists.yml --extra-vars "@.env.yaml"
+ansible-playbook -i inventory/hosts.yml playbooks/pihole.yml --extra-vars "@.env.yaml" --tags lists
 
 # Manually update gravity
 ssh your_username@192.168.100.99
 pihole -g
 
 # Check current lists
-pihole adlist list
-pihole allow -l
-pihole deny -l
+pihole adlist list          # Blocklists
+pihole allow -l             # Whitelist (exact domains)
+pihole deny -l              # Blacklist (exact domains)
+pihole regex -l             # Regex blacklist (patterns)
+pihole regex --allow -l     # Regex whitelist (patterns)
 ```
 
 ## 📚 Available Playbooks
@@ -440,7 +487,7 @@ pihole deny -l
 | Playbook | Purpose | Usage |
 |----------|---------|-------|
 | `playbooks/pihole.yml` | Full Pi-hole deployment | `ansible-playbook -i inventory/hosts.yml playbooks/pihole.yml --extra-vars "@.env.yaml"` |
-| `manage-lists.yml` | Update blocklists/whitelist/blacklist | `ansible-playbook -i inventory/hosts.yml manage-lists.yml --extra-vars "@.env.yaml"` |
+| `playbooks/pihole.yml --tags lists` | Update lists only (blocklists/whitelist/blacklist/regex) | `ansible-playbook -i inventory/hosts.yml playbooks/pihole.yml --extra-vars "@.env.yaml" --tags lists` |
 | `fix-auth-and-dns.yml` | Fix web password and local DNS | `ansible-playbook -i inventory/hosts.yml fix-auth-and-dns.yml --extra-vars "@.env.yaml"` |
 | `set-static-ip.yml` | Configure static IP (use with caution) | `ansible-playbook -i inventory/hosts.yml set-static-ip.yml --extra-vars "@.env.yaml"` |
 | `update-pihole.yml` | Update Pi-hole to latest version | `ansible-playbook -i inventory/hosts.yml update-pihole.yml --extra-vars "@.env.yaml"` |
