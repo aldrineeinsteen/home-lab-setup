@@ -1,0 +1,33 @@
+name: Branch Protection Documentation
+
+# Note: GitHub does not support preventing branch deletion via workflows
+# This workflow documents the branch protection policy
+# Branch protection rules must be configured in repository settings
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - dev
+      - main
+
+jobs:
+  document-policy:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true
+    steps:
+      - name: Document branch protection policy
+        run: |
+          echo "✅ PR merged successfully"
+          echo "📋 Branch Protection Policy:"
+          echo "  - Feature branches (feature/*) should be preserved after merge"
+          echo "  - Bugfix branches (bugfix/*) should be preserved after merge"
+          echo "  - Hotfix branches (hotfix/*) should be preserved after merge"
+          echo ""
+          echo "⚠️ Please do not delete feature branches manually"
+          echo "💡 To configure branch protection rules:"
+          echo "   1. Go to Settings > Branches"
+          echo "   2. Add branch protection rule for 'feature/*'"
+          echo "   3. Enable 'Restrict deletions'"
+
+# Made with Bob

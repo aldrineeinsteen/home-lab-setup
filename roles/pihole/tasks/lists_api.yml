@@ -95,6 +95,16 @@
     - pihole_whitelist is defined
     - pihole_whitelist | length > 0
 
+- name: Explicitly delete domains from whitelist (delete_whitelist)
+  shell: |
+    pihole allow -d {{ pihole_delete_whitelist | join(' ') }}
+  register: whitelist_explicit_delete
+  changed_when: "'removed' in whitelist_explicit_delete.stdout.lower()"
+  failed_when: false
+  when:
+    - pihole_delete_whitelist is defined
+    - pihole_delete_whitelist | length > 0
+
 - name: Remove whitelist domains not in configuration
   shell: |
     DOMAINS_TO_REMOVE=""
@@ -120,7 +130,8 @@
     msg: |
       Whitelist Management:
       - Added: {{ whitelist_add_result.stdout_lines | default(['None']) | join(', ') }}
-      - Removed: {{ whitelist_remove_result.stdout if whitelist_remove_result is defined else 'None' }}
+      - Explicitly Deleted: {{ whitelist_explicit_delete.stdout_lines | default(['None']) | join(', ') if whitelist_explicit_delete is defined else 'None' }}
+      - Auto-Removed: {{ whitelist_remove_result.stdout if whitelist_remove_result is defined else 'None' }}
       - Configured: {{ pihole_whitelist | length if pihole_whitelist is defined else 0 }} domains
 
 # ===== BLACKLIST MANAGEMENT (Declarative - Sync with .env.yaml) =====
@@ -139,6 +150,16 @@
   when:
     - pihole_blacklist is defined
     - pihole_blacklist | length > 0
+
+- name: Explicitly delete domains from blacklist (delete_blacklist)
+  shell: |
+    pihole deny -d {{ pihole_delete_blacklist | join(' ') }}
+  register: blacklist_explicit_delete
+  changed_when: "'removed' in blacklist_explicit_delete.stdout.lower()"
+  failed_when: false
+  when:
+    - pihole_delete_blacklist is defined
+    - pihole_delete_blacklist | length > 0
 
 - name: Remove blacklist domains not in configuration
   shell: |
@@ -165,8 +186,87 @@
     msg: |
       Blacklist Management:
       - Added: {{ blacklist_add_result.stdout_lines | default(['None']) | join(', ') }}
-      - Removed: {{ blacklist_remove_result.stdout if blacklist_remove_result is defined else 'None' }}
+      - Explicitly Deleted: {{ blacklist_explicit_delete.stdout_lines | default(['None']) | join(', ') if blacklist_explicit_delete is defined else 'None' }}
+      - Auto-Removed: {{ blacklist_remove_result.stdout if blacklist_remove_result is defined else 'None' }}
       - Configured: {{ pihole_blacklist | length if pihole_blacklist is defined else 0 }} domains
+
+# ===== REGEX BLACKLIST MANAGEMENT =====
+- name: Get current regex blacklist
+  shell: pihole regex -l | grep '^\s*-\s*"' | sed 's/^\s*-\s*"\(.*\)"/\1/' || true
+  register: current_regex_blacklist
+  changed_when: false
+  failed_when: false
+
+- name: Add regex blacklist patterns
+  shell: |
+    {% for pattern in pihole_regex_blacklist | default([]) %}
+    pihole regex "{{ pattern }}"
+    {% endfor %}
+  register: regex_blacklist_add
+  changed_when: "'Added' in regex_blacklist_add.stdout"
+  failed_when: false
+  when:
+    - pihole_regex_blacklist is defined
+    - pihole_regex_blacklist | length > 0
+
+- name: Explicitly delete regex from blacklist (delete_regex_blacklist)
+  shell: |
+    {% for pattern in pihole_delete_regex_blacklist | default([]) %}
+    pihole regex -d "{{ pattern }}"
+    {% endfor %}
+  register: regex_blacklist_explicit_delete
+  changed_when: "'removed' in regex_blacklist_explicit_delete.stdout.lower()"
+  failed_when: false
+  when:
+    - pihole_delete_regex_blacklist is defined
+    - pihole_delete_regex_blacklist | length > 0
+
+- name: Display regex blacklist management result
+  debug:
+    msg: |
+      Regex Blacklist Management:
+      - Added: {{ pihole_regex_blacklist | length if pihole_regex_blacklist is defined else 0 }} patterns
+      - Explicitly Deleted: {{ pihole_delete_regex_blacklist | length if pihole_delete_regex_blacklist is defined else 0 }} patterns
+      - Configured: {{ pihole_regex_blacklist | length if pihole_regex_blacklist is defined else 0 }} patterns
+
+# ===== REGEX WHITELIST MANAGEMENT =====
+- name: Get current regex whitelist
+  shell: pihole regex --allow -l | grep '^\s*-\s*"' | sed 's/^\s*-\s*"\(.*\)"/\1/' || true
+  register: current_regex_whitelist
+  changed_when: false
+  failed_when: false
+
+- name: Add regex whitelist patterns
+  shell: |
+    {% for pattern in pihole_regex_whitelist | default([]) %}
+    pihole regex --allow "{{ pattern }}"
+    {% endfor %}
+  register: regex_whitelist_add
+  changed_when: "'Added' in regex_whitelist_add.stdout"
+  failed_when: false
+  when:
+    - pihole_regex_whitelist is defined
+    - pihole_regex_whitelist | length > 0
+
+- name: Explicitly delete regex from whitelist (delete_regex_whitelist)
+  shell: |
+    {% for pattern in pihole_delete_regex_whitelist | default([]) %}
+    pihole regex --allow -d "{{ pattern }}"
+    {% endfor %}
+  register: regex_whitelist_explicit_delete
+  changed_when: "'removed' in regex_whitelist_explicit_delete.stdout.lower()"
+  failed_when: false
+  when:
+    - pihole_delete_regex_whitelist is defined
+    - pihole_delete_regex_whitelist | length > 0
+
+- name: Display regex whitelist management result
+  debug:
+    msg: |
+      Regex Whitelist Management:
+      - Added: {{ pihole_regex_whitelist | length if pihole_regex_whitelist is defined else 0 }} patterns
+      - Explicitly Deleted: {{ pihole_delete_regex_whitelist | length if pihole_delete_regex_whitelist is defined else 0 }} patterns
+      - Configured: {{ pihole_regex_whitelist | length if pihole_regex_whitelist is defined else 0 }} patterns
 
 - name: Get all lists to verify additions
   uri:
@@ -203,9 +303,15 @@
     - pihole_auth.json.session.valid
     - (add_adlist_result.changed | default(false)) or
       (whitelist_add_result.changed | default(false)) or
+      (whitelist_explicit_delete.changed | default(false)) or
       (whitelist_remove_result.changed | default(false)) or
       (blacklist_add_result.changed | default(false)) or
-      (blacklist_remove_result.changed | default(false))
+      (blacklist_explicit_delete.changed | default(false)) or
+      (blacklist_remove_result.changed | default(false)) or
+      (regex_blacklist_add.changed | default(false)) or
+      (regex_blacklist_explicit_delete.changed | default(false)) or
+      (regex_whitelist_add.changed | default(false)) or
+      (regex_whitelist_explicit_delete.changed | default(false))
 
 - name: Get updated statistics using FTL API
   uri:
